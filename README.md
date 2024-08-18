@@ -1,12 +1,24 @@
 # dashboard
 A Jupyter notebook that creates a dashboard for viewing LizardByte repository data.
 
-## Notes:
-`ploty.js` must exist in the notebooks directory for the dashboard to be viewable by nbviewer.org.
-It can be downloaded from their cdn: https://github.com/plotly/plotly.js/?tab=readme-ov-file#the-script-html-element
+## Contributing
 
-You can create a replica of the nbviewer.org dashboard by running the following command in the terminal:
+1. Notebooks should be committed with the output cleared.
+   ```bash
+   jupyter nbconvert --to notebook --ClearOutputPreprocessor.enabled=True --inplace ./notebook/dashboard.ipynb
+   ```
 
-```bash
-jupyter nbconvert --to html notebook/dashboard.ipynb
-```
+2. You can create a preview of the notebook in html by running the following commands:
+   ```bash
+   npm install
+   cp -f ./node_modules/ploty.js/dist/plotly.min.js ./gh-pages/plotly.js
+   jupyter nbconvert \
+     --debug \
+     --config=./jupyter_nbconvert_config.py \
+     --execute \
+     --no-input \
+     --to=html \
+     --output-dir=./gh-pages \
+     --output=index \
+     ./notebook/dashboard.ipynb
+   ```
