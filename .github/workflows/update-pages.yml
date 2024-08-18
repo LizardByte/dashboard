@@ -18,6 +18,7 @@ concurrency:
 jobs:
   lint:
     runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -72,6 +73,18 @@ jobs:
         run: |
           npm install
 
+      - name: Get current date
+        id: date
+        run: echo "date=$(date +'%Y-%m-%d')" >> $GITHUB_OUTPUT
+
+      - name: Prepare gh-pages
+        run: |
+          # empty contents
+          rm -f -r ./gh-pages/*
+
+          # copy dependencies
+          cp -f ./node_modules/plotly.js/dist/plotly.min.js ./gh-pages/plotly.js
+
       - name: Convert notebook
         env:
           GITHUB_TOKEN: ${{ secrets.GH_BOT_TOKEN || secrets.GITHUB_TOKEN }}
@@ -85,18 +98,6 @@ jobs:
             --output-dir=./gh-pages \
             --output=index \
             ./notebook/dashboard.ipynb
-
-      - name: Get current date
-        id: date
-        run: echo "date=$(date +'%Y-%m-%d')" >> $GITHUB_OUTPUT
-
-      - name: Prepare gh-pages
-        run: |
-          # empty contents
-          rm -f -r ./gh-pages/*
-
-          # copy dependencies
-          cp -f ./node_modules/plotly.js/dist/plotly.min.js ./gh-pages/plotly.js
 
       - name: Archive gh-pages
         if: ${{ github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' }}
