@@ -40,6 +40,16 @@ jobs:
             --verbose \
             .
 
+      - name: nb-clean
+        run: |
+          output=$(find . -name '*.ipynb' -exec nb-clean check {} \;)
+
+          # fail if there are any issues
+          if [ -n "$output" ]; then
+            echo "$output"
+            exit 1
+          fi
+
   update_pages:
     runs-on: ubuntu-latest
     steps:
