@@ -5,7 +5,7 @@ A Jupyter notebook that creates a dashboard for viewing LizardByte repository da
 
 1. Notebooks should be committed with the output cleared.
    ```bash
-   jupyter nbconvert --to notebook --ClearOutputPreprocessor.enabled=True --inplace ./notebook/dashboard.ipynb
+   find . -name '*.ipynb' -exec nb-clean clean {} \;
    ```
 
 2. You can create a preview of the notebook in html by running the following commands:
@@ -22,3 +22,11 @@ A Jupyter notebook that creates a dashboard for viewing LizardByte repository da
      --output=index \
      ./notebook/dashboard.ipynb
    ```
+
+### Reviewing PRs
+Notebook diffs are difficult to read. To make reviewing easier, you can enable the
+[Rich Jupyter Notebook Diff](https://github.blog/changelog/2023-03-01-feature-preview-rich-jupyter-notebook-diffs/)
+feature in your GitHub account settings.
+
+Local options are also available. See [this](https://www.reviewnb.com/git-jupyter-notebook-ultimate-guide)
+for more information.
