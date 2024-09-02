@@ -61,6 +61,20 @@ jobs:
           # copy dependencies
           cp -f ./node_modules/plotly.js/dist/plotly.min.js ./gh-pages/plotly.js
 
+      - name: Update
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_API_TOKEN }}
+          CROWDIN_TOKEN: ${{ secrets.CROWDIN_TOKEN }}
+          DISCORD_INVITE: ${{ secrets.DISCORD_INVITE }}
+          FACEBOOK_GROUP_ID: ${{ secrets.FACEBOOK_GROUP_ID }}
+          FACEBOOK_PAGE_ID: ${{ secrets.FACEBOOK_PAGE_ID }}
+          FACEBOOK_TOKEN: ${{ secrets.FACEBOOK_ACCESS_TOKEN }}
+          GITHUB_REPOSITORY_OWNER: ${{ secrets.GH_ORG_NAME }}
+          GITHUB_TOKEN: ${{ secrets.GH_BOT_TOKEN || secrets.GITHUB_TOKEN }}
+          READTHEDOCS_TOKEN: ${{ secrets.READTHEDOCS_TOKEN }}
+        run: |
+          python -u ./src/update.py
+
       - name: Convert notebook
         env:
           GITHUB_TOKEN: ${{ secrets.GH_BOT_TOKEN || secrets.GITHUB_TOKEN }}
