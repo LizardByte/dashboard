@@ -2,13 +2,13 @@
 <svg xmlns="http://www.w3.org/2000/svg" xmlns:ev="http://www.w3.org/2001/xml-events" xmlns:xlink="http://www.w3.org/1999/xlink" baseProfile="full" height="416" version="1.1" width="500">
   <defs>
     <style type="text/css"><![CDATA[
-        @import url(https://fonts.googleapis.com/css?family=Open+Sans);
-        .svg-font {
-            font-family: "Open Sans";
-            font-size: 12px;
-            fill: #999;
-        }
-        ]]></style>
+    @import url(https://fonts.googleapis.com/css?family=Open+Sans);
+    .svg-font {
+        font-family: "Open Sans";
+        font-size: 12px;
+        fill: #999;
+    }
+    ]]></style>
   </defs>
   <g class="svg-font" transform="translate(0,0)">
     <text style="text-anchor:end;" x="200" y="18">English (en)</text>
