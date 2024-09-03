@@ -7,6 +7,11 @@ A Jupyter notebook that creates a dashboard for viewing LizardByte repository da
    ```bash
    find . -name '*.ipynb' -exec nb-clean clean {} \;
    ```
+   
+   Or for a single notebook:
+   ```bash
+   nb-clean clean ./notebook/dashboard.ipynb
+   ```
 
 2. You can create a preview of the notebook in html by running the following commands:
    ```bash
