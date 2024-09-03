@@ -64,8 +64,9 @@ jobs:
           # copy dependencies
           cp -f ./node_modules/plotly.js/dist/plotly.min.js ./gh-pages/plotly.js
 
-      - name: Update
+      - name: Convert notebook
         env:
+          DASHBOARD_AUR_REPOS: sunshine,sunshine-bin,sunshine-git
           CODECOV_TOKEN: ${{ secrets.CODECOV_API_TOKEN }}
           CROWDIN_TOKEN: ${{ secrets.CROWDIN_TOKEN }}
           DISCORD_INVITE: ${{ secrets.DISCORD_INVITE }}
@@ -74,13 +75,8 @@ jobs:
           FACEBOOK_TOKEN: ${{ secrets.FACEBOOK_ACCESS_TOKEN }}
           GITHUB_REPOSITORY_OWNER: ${{ secrets.GH_ORG_NAME }}
           GITHUB_TOKEN: ${{ secrets.GH_BOT_TOKEN || secrets.GITHUB_TOKEN }}
+          PATREON_CAMPAIGN_ID: 6131567
           READTHEDOCS_TOKEN: ${{ secrets.READTHEDOCS_TOKEN }}
-        run: |
-          python -u ./src/update.py
-
-      - name: Convert notebook
-        env:
-          GITHUB_TOKEN: ${{ secrets.GH_BOT_TOKEN || secrets.GITHUB_TOKEN }}
         run: |
           jupyter nbconvert \
             --debug \
