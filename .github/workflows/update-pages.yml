@@ -58,6 +58,9 @@ jobs:
           # empty contents
           rm -f -r ./gh-pages/*
 
+          # no jekyll
+          touch ./gh-pages/.nojekyll
+
           # copy dependencies
           cp -f ./node_modules/plotly.js/dist/plotly.min.js ./gh-pages/plotly.js
 
