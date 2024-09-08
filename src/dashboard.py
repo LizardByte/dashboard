@@ -67,6 +67,10 @@ def get_repo_data() -> pd.DataFrame:
 
     repo_data = []
     for repo in repos:
+        # skip private repos
+        if repo.private:
+            continue
+
         # get license
         license_name = repo.license.name if repo.license else "No License"
 
