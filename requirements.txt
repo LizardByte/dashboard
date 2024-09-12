@@ -1,7 +1,7 @@
 cloudscraper==1.2.71
 crowdin-api-client==1.17.0
 ipython==8.27.0
-itables==2.1.4
+itables==2.1.5
 notebook==7.2.2
 pandas==2.2.2
 pillow==10.4.0
