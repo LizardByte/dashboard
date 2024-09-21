@@ -3,7 +3,7 @@ crowdin-api-client==1.17.0
 ipython==8.27.0
 itables==2.1.5
 notebook==7.2.2
-pandas==2.2.2
+pandas==2.2.3
 pillow==10.4.0
 plotly==5.24.1
 pygithub==2.4.0
