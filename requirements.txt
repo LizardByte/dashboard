@@ -10,5 +10,5 @@ pygithub==2.5.0
 python-dotenv==1.0.1
 requests==2.32.3
 svgwrite==1.4.3
-tqdm==4.66.6
+tqdm==4.67.0
 unhandled_exit==1.0.0
