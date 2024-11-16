@@ -1,2 +1,2 @@
 nb-clean==4.0.1
-nbqa[toolchain]==1.9.0
+nbqa[toolchain]==1.9.1
