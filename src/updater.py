@@ -430,7 +430,7 @@ def update():
         threads=threads,
     )
     append_thread_if_env_set(
-        env_vars=['FACEBOOK_TOKEN', 'FACEBOOK_GROUP_ID', 'FACEBOOK_PAGE_ID'],
+        env_vars=['FACEBOOK_TOKEN', 'FACEBOOK_PAGE_ID'],
         name='facebook',
         target=update_fb,
         threads=threads,
