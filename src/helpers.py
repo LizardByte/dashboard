@@ -3,6 +3,7 @@ import json
 import os
 import pathlib
 from typing import Union
+from urllib3 import Retry
 
 # lib imports
 import cloudscraper
@@ -12,7 +13,7 @@ from requests.adapters import HTTPAdapter
 
 # setup requests session
 s = cloudscraper.CloudScraper()  # CloudScraper inherits from requests.Session
-retry_adapter = HTTPAdapter(max_retries=5)
+retry_adapter = HTTPAdapter(max_retries=Retry(total=5, backoff_factor=1))
 s.mount('https://', retry_adapter)
 
 
