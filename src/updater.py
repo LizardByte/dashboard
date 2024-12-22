@@ -1,6 +1,7 @@
 # standard imports
 import os
 from threading import Thread
+import time
 
 # lib imports
 from crowdin_api import CrowdinClient
@@ -44,8 +45,22 @@ def update_codecov():
 
     url = f'{base_url}/repos?page_size=500'
 
-    response = helpers.s.get(url=url, headers=headers)
-    data = response.json()
+    max_tries = 5
+    count = 0
+    data = None
+    response = None
+    while count < max_tries:
+        response = helpers.s.get(url=url, headers=headers)
+        try:
+            data = response.json()
+        except requests.exceptions.JSONDecodeError:
+            count += 1
+            time.sleep(2 ** count)  # exponential backoff
+            continue
+        break
+
+    if not data:
+        raise requests.exceptions.HTTPError(f'Error: {response.text}')
 
     if response.status_code != 200:
         raise requests.exceptions.HTTPError(f'Error: {data["detail"]}')
