@@ -88,6 +88,13 @@ jobs:
             --output=index \
             ./notebook/dashboard.ipynb
 
+      - name: Check notebook for tracebacks
+        run: |
+          cat ./gh-pages/index.html
+          echo "---"
+          echo "Checking for tracebacks..."
+          grep -i -E 'Traceback (most recent call last):' ./gh-pages/index.html && exit 1 || true
+
       - name: Archive gh-pages
         if: ${{ github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' }}
         shell: bash
