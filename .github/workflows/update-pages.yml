@@ -73,7 +73,7 @@ jobs:
           FACEBOOK_GROUP_ID: ${{ secrets.FACEBOOK_GROUP_ID }}
           FACEBOOK_PAGE_ID: ${{ secrets.FACEBOOK_PAGE_ID }}
           FACEBOOK_TOKEN: ${{ secrets.FACEBOOK_ACCESS_TOKEN }}
-          GITHUB_REPOSITORY_OWNER: ${{ secrets.GH_ORG_NAME }}
+          GITHUB_REPOSITORY_OWNER: ${{ github.repository_owner }}
           GITHUB_TOKEN: ${{ secrets.GH_BOT_TOKEN || secrets.GITHUB_TOKEN }}
           PATREON_CAMPAIGN_ID: 6131567
           READTHEDOCS_TOKEN: ${{ secrets.READTHEDOCS_TOKEN }}
