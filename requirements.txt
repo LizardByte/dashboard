@@ -1,5 +1,5 @@
 cloudscraper==1.2.71
-crowdin-api-client==1.19.0
+crowdin-api-client==1.20.0
 ipython==8.31.0
 itables==2.2.4
 notebook==7.3.2
