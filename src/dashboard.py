@@ -44,8 +44,20 @@ df_docs_data = pd.DataFrame()
 def init():
     global updated
     if not updated:
+        update_html_head_title()
         updater.update()
         updated = True
+
+
+def update_html_head_title():
+    script = """
+    <script>
+      document.addEventListener('DOMContentLoaded', function() {
+        document.title = 'Dashboard | LizardByte';
+      });
+    </script>
+    """
+    display(HTML(script))
 
 
 def get_repos() -> PaginatedList:
