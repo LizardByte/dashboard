@@ -6,7 +6,7 @@ notebook==7.3.2
 pandas==2.2.3
 pillow==11.1.0
 plotly==5.24.1
-pygithub==2.5.0
+pygithub==2.6.1
 python-dotenv==1.0.1
 requests==2.32.3
 svgwrite==1.4.3
