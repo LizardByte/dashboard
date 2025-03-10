@@ -88,6 +88,10 @@ jobs:
             --output=index \
             ./notebook/dashboard.ipynb
 
+      - name: Cat log
+        run: |
+          cat ./logs/updater.log
+
       - name: Check notebook for tracebacks
         run: |
           cat ./gh-pages/index.html

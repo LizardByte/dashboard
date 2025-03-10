@@ -10,6 +10,8 @@ import cloudscraper
 from PIL import Image
 from requests.adapters import HTTPAdapter
 
+# local imports
+from src.logger import log
 
 # setup requests session
 s = cloudscraper.CloudScraper()  # CloudScraper inherits from requests.Session
@@ -22,6 +24,7 @@ def debug_print(
         sep: Union[str, None] = ' ',
         end: Union[str, None] = '\n',
 ):
+    log.debug(msg=sep.join(map(str, values)))
     if os.getenv('ACTIONS_RUNNER_DEBUG') or os.getenv('ACTIONS_STEP_DEBUG'):
         print(*values, sep=sep, end=end)
 
