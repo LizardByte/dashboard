@@ -169,7 +169,11 @@ def update_crowdin():
     """
     Cache and update data from Crowdin API, and generate completion graph.
     """
-    client = CrowdinClient(token=os.environ['CROWDIN_TOKEN'])
+    client = CrowdinClient(
+        token=os.environ['CROWDIN_TOKEN'],
+        retry_delay=2,
+        max_retries=10,
+    )
 
     project_data = client.projects.list_projects()['data']
 
