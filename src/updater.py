@@ -1,7 +1,6 @@
 # standard imports
 import os
 from threading import Thread
-import time
 
 # lib imports
 from crowdin_api import CrowdinClient
@@ -46,25 +45,15 @@ def update_codecov():
 
     url = f'{base_url}/repos?page_size=500'
 
-    max_tries = 5
-    count = 0
-    data = None
-    response = None
-    while count < max_tries:
-        response = helpers.s.get(url=url, headers=headers)
-        try:
-            data = response.json()
-        except requests.exceptions.JSONDecodeError:
-            log.error(f'Failed to get data from {url}, attempt {count + 1}/{max_tries}, got response: {response.text}')
-            count += 1
-            time.sleep(2 ** count)  # exponential backoff
-            continue
-        break
-
-    if not data:
+    response = helpers.s.get(url=url, headers=headers)
+    try:
+        data = response.json()
+    except requests.exceptions.JSONDecodeError:
+        log.error(f'Error: update_codecov: {response.text}')
         raise requests.exceptions.HTTPError(f'Error: {response.text}')
 
     if response.status_code != 200:
+        log.error(f'Error: update_codecov: {data["detail"]}')
         raise requests.exceptions.HTTPError(f'Error: {data["detail"]}')
 
     assert data['next'] is None, 'More than 500 repos found, need to implement pagination.'
@@ -232,7 +221,7 @@ def update_fb():
             desc='Updating Facebook data',
     ):
         url = f'{fb_base_url}/{value}'
-        response = requests.get(url=url)
+        response = helpers.s.get(url=url)
 
         data = response.json()
         try:
@@ -315,6 +304,7 @@ def update_github():
         try:
             image_url = repo_data['data']['repository']['openGraphImageUrl']
         except KeyError:
+            log.error(f'Error: update_github: {repo_data}')
             raise SystemExit('"GITHUB_TOKEN" is invalid.')
         if 'avatars' not in image_url:
             file_path = os.path.join(BASE_DIR, 'github', 'openGraphImages', repo['name'])
@@ -342,7 +332,7 @@ def update_patreon():
             iterable=patreon_urls,
             desc='Updating Patreon data',
     ):
-        response = helpers.s.get(url=patreon_url)
+        response = helpers.cs.get(url=patreon_url)
 
         data = response.json()['data']['attributes']
 
