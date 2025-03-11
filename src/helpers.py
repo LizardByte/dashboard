@@ -8,14 +8,21 @@ from urllib3 import Retry
 # lib imports
 import cloudscraper
 from PIL import Image
+import requests
 from requests.adapters import HTTPAdapter
 
 # local imports
 from src.logger import log
 
-# setup requests session
-s = cloudscraper.CloudScraper()  # CloudScraper inherits from requests.Session
+# setup requests sessions
 retry_adapter = HTTPAdapter(max_retries=Retry(total=5, backoff_factor=1))
+
+# cloudscraper session
+cs = cloudscraper.CloudScraper()  # CloudScraper inherits from requests.Session
+cs.mount('https://', retry_adapter)
+
+# requests session
+s = requests.Session()
 s.mount('https://', retry_adapter)
 
 
