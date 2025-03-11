@@ -13,6 +13,7 @@ import unhandled_exit
 # local imports
 from src import BASE_DIR
 from src import helpers
+from src.logger import log
 
 
 def update_aur(aur_repos: list):
@@ -54,6 +55,7 @@ def update_codecov():
         try:
             data = response.json()
         except requests.exceptions.JSONDecodeError:
+            log.error(f'Failed to get data from {url}, attempt {count + 1}/{max_tries}, got response: {response.text}')
             count += 1
             time.sleep(2 ** count)  # exponential backoff
             continue
