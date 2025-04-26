@@ -1,12 +1,19 @@
 ---
 name: Update
+permissions:
+  contents: read
 
 on:
   pull_request:
-    branches: [master]
-    types: [opened, synchronize, reopened]
+    branches:
+      - master
+    types:
+      - opened
+      - synchronize
+      - reopened
   push:
-    branches: [master]
+    branches:
+      - master
   schedule:
     - cron: '0 * * * *'  # every hour
   workflow_dispatch:
@@ -46,8 +53,7 @@ jobs:
           python -m pip install -r requirements.txt
 
       - name: Install npm dependencies
-        run: |
-          npm install
+        run: npm install
 
       - name: Get current date
         id: date
@@ -89,8 +95,7 @@ jobs:
             ./notebook/dashboard.ipynb
 
       - name: Cat log
-        run: |
-          cat ./logs/updater.log
+        run: cat ./logs/updater.log
 
       - name: Check notebook for tracebacks
         run: |
@@ -100,7 +105,7 @@ jobs:
           grep -i -E 'Traceback \(most recent call last\):' ./gh-pages/index.html && exit 1 || true
 
       - name: Archive gh-pages
-        if: ${{ github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' }}
+        if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
         shell: bash
         run: |
           7z \
@@ -108,18 +113,19 @@ jobs:
             a "./gh-pages.zip" "./gh-pages"
 
       - name: Upload Artifacts
-        if: ${{ github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' }}
+        if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
         uses: actions/upload-artifact@v4
         with:
           name: gh-pages
-          if-no-files-found: error  # 'warn' or 'ignore' are also available, defaults to `warn`
+          if-no-files-found: error
           path: |
             ${{ github.workspace }}/gh-pages.zip
 
       - name: Deploy to gh-pages
         if: >-
           (github.event_name == 'push' && github.ref == 'refs/heads/master') ||
-          (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
+          github.event_name == 'schedule' ||
+          github.event_name == 'workflow_dispatch'
         uses: actions-js/push@v1.5
         with:
           github_token: ${{ secrets.GH_BOT_TOKEN }}
