@@ -365,7 +365,6 @@ def show_pr_table():
         ],
         classes="display compact",
         column_filters="header",
-        header=True,
         layout={"topEnd": None},
     )
 
