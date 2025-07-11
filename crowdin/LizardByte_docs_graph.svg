@@ -25,8 +25,8 @@
   <g class="svg-font" transform="translate(0,64)">
     <text style="text-anchor:end;" x="200" y="18">Chinese Simplified (zh-CN)</text>
     <rect fill="#999" height="16" rx="0" ry="0" style="filter:opacity(30%);" width="160" x="212" y="6"/>
-    <rect fill="#5D89C3" height="16" rx="0" ry="0" width="9.6" x="212" y="6"/>
-    <text x="384" y="16">6%</text>
+    <rect fill="#5D89C3" height="16" rx="0" ry="0" width="12.8" x="212" y="6"/>
+    <text x="384" y="16">8%</text>
   </g>
   <g class="svg-font" transform="translate(0,96)">
     <text style="text-anchor:end;" x="200" y="18">Russian (ru)</text>
