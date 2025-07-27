@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8" ?>
-<svg xmlns="http://www.w3.org/2000/svg" xmlns:ev="http://www.w3.org/2001/xml-events" xmlns:xlink="http://www.w3.org/1999/xlink" baseProfile="full" height="608" version="1.1" width="500">
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:ev="http://www.w3.org/2001/xml-events" xmlns:xlink="http://www.w3.org/1999/xlink" baseProfile="full" height="640" version="1.1" width="500">
   <defs>
     <style type="text/css"><![CDATA[
     @import url(https://fonts.googleapis.com/css?family=Open+Sans);
@@ -133,6 +133,12 @@
   </g>
   <g class="svg-font" transform="translate(0,576)">
     <text style="text-anchor:end;" x="200" y="18">Russian (ru)</text>
+    <rect fill="#999" height="16" rx="0" ry="0" style="filter:opacity(30%);" width="160" x="212" y="6"/>
+    <rect fill="#5D89C3" height="16" rx="0" ry="0" width="160.0" x="212" y="6"/>
+    <text x="384" y="16">100%</text>
+  </g>
+  <g class="svg-font" transform="translate(0,608)">
+    <text style="text-anchor:end;" x="200" y="18">Vietnamese (vi)</text>
     <rect fill="#999" height="16" rx="0" ry="0" style="filter:opacity(30%);" width="160" x="212" y="6"/>
     <rect fill="#5D89C3" height="16" rx="0" ry="0" width="160.0" x="212" y="6"/>
     <text x="384" y="16">100%</text>
