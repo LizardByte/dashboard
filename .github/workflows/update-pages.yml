@@ -58,7 +58,7 @@ jobs:
 
       - name: Get current date
         id: date
-        run: echo "date=$(date +'%Y-%m-%d')" >> $GITHUB_OUTPUT
+        run: echo "date=$(date +'%Y-%m-%d')" >> "${GITHUB_OUTPUT}"
 
       - name: Prepare gh-pages
         run: |
@@ -103,7 +103,14 @@ jobs:
           cat ./gh-pages/index.html
           echo "---"
           echo "Checking for tracebacks..."
-          grep -i -E 'Traceback \(most recent call last\):' ./gh-pages/index.html && exit 1 || true
+          set +e
+          tracebacks=$(grep -i -E 'Traceback \(most recent call last\):' ./gh-pages/index.html)
+          set -e
+          if [ -n "${tracebacks}" ]; then
+            echo "Tracebacks found:"
+            echo "${tracebacks}"
+            exit 1
+          fi
 
       - name: Archive gh-pages
         if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
