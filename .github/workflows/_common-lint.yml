@@ -23,5 +23,5 @@ concurrency:
 jobs:
   lint:
     name: Common Lint
-    uses: LizardByte/.github/.github/workflows/__call-common-lint.yml@master
+    uses: LizardByte/.github/.github/workflows/__call-common-lint.yml@ReenigneArcher-patch-1
     if: ${{ github.repository != 'LizardByte/.github' }}
