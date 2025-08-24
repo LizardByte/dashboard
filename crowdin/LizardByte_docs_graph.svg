@@ -11,13 +11,13 @@
     ]]></style>
   </defs>
   <g class="svg-font" transform="translate(0,0)">
-    <text style="text-anchor:end;" x="200" y="18">Spanish (es-ES)</text>
+    <text style="text-anchor:end;" x="200" y="18">Turkish (tr)</text>
     <rect fill="#999" height="16" rx="0" ry="0" style="filter:opacity(30%);" width="160" x="212" y="6"/>
-    <rect fill="#5D89C3" height="16" rx="0" ry="0" width="56.0" x="212" y="6"/>
-    <text x="384" y="16">35%</text>
+    <rect fill="#5D89C3" height="16" rx="0" ry="0" width="65.6" x="212" y="6"/>
+    <text x="384" y="16">41%</text>
   </g>
   <g class="svg-font" transform="translate(0,32)">
-    <text style="text-anchor:end;" x="200" y="18">Turkish (tr)</text>
+    <text style="text-anchor:end;" x="200" y="18">Spanish (es-ES)</text>
     <rect fill="#999" height="16" rx="0" ry="0" style="filter:opacity(30%);" width="160" x="212" y="6"/>
     <rect fill="#5D89C3" height="16" rx="0" ry="0" width="56.0" x="212" y="6"/>
     <text x="384" y="16">35%</text>
