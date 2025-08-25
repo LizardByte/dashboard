@@ -88,21 +88,21 @@
     <text x="384" y="16">100%</text>
   </g>
   <g class="svg-font" transform="translate(0,352)">
+    <text style="text-anchor:end;" x="200" y="18">Vietnamese (vi)</text>
+    <rect fill="#999" height="16" rx="0" ry="0" style="filter:opacity(30%);" width="160" x="212" y="6"/>
+    <rect fill="#5D89C3" height="16" rx="0" ry="0" width="160.0" x="212" y="6"/>
+    <rect fill="#71C277" height="16" rx="0" ry="0" width="16.0" x="212" y="6"/>
+    <text x="384" y="16">100%</text>
+  </g>
+  <g class="svg-font" transform="translate(0,384)">
     <text style="text-anchor:end;" x="200" y="18">Korean (ko)</text>
     <rect fill="#999" height="16" rx="0" ry="0" style="filter:opacity(30%);" width="160" x="212" y="6"/>
     <rect fill="#5D89C3" height="16" rx="0" ry="0" width="160.0" x="212" y="6"/>
     <rect fill="#71C277" height="16" rx="0" ry="0" width="14.399999999999999" x="212" y="6"/>
     <text x="384" y="16">100%</text>
   </g>
-  <g class="svg-font" transform="translate(0,384)">
-    <text style="text-anchor:end;" x="200" y="18">Chinese Simplified (zh-CN)</text>
-    <rect fill="#999" height="16" rx="0" ry="0" style="filter:opacity(30%);" width="160" x="212" y="6"/>
-    <rect fill="#5D89C3" height="16" rx="0" ry="0" width="160.0" x="212" y="6"/>
-    <rect fill="#71C277" height="16" rx="0" ry="0" width="9.6" x="212" y="6"/>
-    <text x="384" y="16">100%</text>
-  </g>
   <g class="svg-font" transform="translate(0,416)">
-    <text style="text-anchor:end;" x="200" y="18">Vietnamese (vi)</text>
+    <text style="text-anchor:end;" x="200" y="18">Chinese Simplified (zh-CN)</text>
     <rect fill="#999" height="16" rx="0" ry="0" style="filter:opacity(30%);" width="160" x="212" y="6"/>
     <rect fill="#5D89C3" height="16" rx="0" ry="0" width="160.0" x="212" y="6"/>
     <rect fill="#71C277" height="16" rx="0" ry="0" width="9.6" x="212" y="6"/>
