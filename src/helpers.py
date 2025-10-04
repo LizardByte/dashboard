@@ -2,6 +2,7 @@
 import json
 import os
 import pathlib
+import time
 from typing import Union
 from urllib3 import Retry
 
@@ -14,16 +15,47 @@ from requests.adapters import HTTPAdapter
 # local imports
 from src.logger import log
 
+# constants
+HTTPS = 'https://'
+
 # setup requests sessions
 retry_adapter = HTTPAdapter(max_retries=Retry(total=5, backoff_factor=1))
 
 # cloudscraper session
 cs = cloudscraper.CloudScraper()  # CloudScraper inherits from requests.Session
-cs.mount('https://', retry_adapter)
+cs.mount(HTTPS, retry_adapter)
 
 # requests session
 s = requests.Session()
-s.mount('https://', retry_adapter)
+s.mount(HTTPS, retry_adapter)
+
+
+class RateLimitedSession(requests.Session):
+    """
+    A requests.Session subclass that implements rate limiting.
+    """
+    def __init__(self, calls_per_minute=60):
+        super().__init__()
+        self.calls_per_minute = calls_per_minute
+        self.min_interval = 60.0 / calls_per_minute  # seconds between calls
+        self.last_call_time = 0
+
+    def request(self, *args, **kwargs):
+        # Calculate time since last call
+        elapsed = time.time() - self.last_call_time
+
+        # If we need to wait, sleep for the remaining time
+        if elapsed < self.min_interval:
+            time.sleep(self.min_interval - elapsed)
+
+        # Make the request
+        self.last_call_time = time.time()
+        return super().request(*args, **kwargs)
+
+
+# readthedocs rate-limited session (60 authenticated requests per minute)
+rtd_s = RateLimitedSession(calls_per_minute=60)
+rtd_s.mount(HTTPS, retry_adapter)
 
 
 def debug_print(

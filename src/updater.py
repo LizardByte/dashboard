@@ -354,7 +354,7 @@ def readthedocs_loop(url: str, file_path: str) -> list:
     results = []
 
     while True:
-        response = helpers.s.get(url=url, headers=headers)
+        response = helpers.rtd_s.get(url=url, headers=headers)
         try:
             data = response.json()
         except requests.exceptions.JSONDecodeError:
