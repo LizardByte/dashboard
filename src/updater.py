@@ -279,16 +279,21 @@ def update_github():
             iterable=repos,
             desc='Updating GitHub data',
     ):
-        # languages
-        response = helpers.s.get(url=repo['languages_url'], headers=headers)
-        # if TypeError, API limit has likely been exceeded or possible issue with GitHub API...
+        # if TypeError, API limit has likely been exceeded or a possible issue with GitHub API...
         # https://www.githubstatus.com/
         # do not error handle, better that workflow fails
 
+        # languages
+        response = helpers.s.get(url=repo['languages_url'], headers=headers)
         languages = response.json()
-
         file_path = os.path.join(BASE_DIR, 'github', 'languages', repo['name'])
         helpers.write_json_files(file_path=file_path, data=languages)
+
+        # commit activity (last year of activity)
+        response = helpers.s.get(url=f"{repo['url']}/stats/commit_activity", headers=headers)
+        commits = response.json()
+        file_path = os.path.join(BASE_DIR, 'github', 'commitActivity', repo['name'])
+        helpers.write_json_files(file_path=file_path, data=commits)
 
         # openGraphImages
         query = """
