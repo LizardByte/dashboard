@@ -279,6 +279,10 @@ def update_github():
             iterable=repos,
             desc='Updating GitHub data',
     ):
+        # skip archived repos
+        if repo['archived']:
+            continue
+
         # if TypeError, API limit has likely been exceeded or a possible issue with GitHub API...
         # https://www.githubstatus.com/
         # do not error handle, better that workflow fails
