@@ -294,8 +294,13 @@ def update_github():
         helpers.write_json_files(file_path=file_path, data=languages)
 
         # commit activity (last year of activity)
-        response = helpers.s.get(url=f"{repo['url']}/stats/commit_activity", headers=headers)
-        commits = response.json()
+        commit_activity_url = f"{repo['url']}/stats/commit_activity"
+        commits = helpers.retry_on_empty_response(
+            fetch_func=lambda url=commit_activity_url: helpers.s.get(url=url, headers=headers).json()
+        )
+        # warn if commits are empty
+        if not commits:
+            log.warning(f'Warning: GitHub commit_activity API returned empty response for repo: {repo["name"]}')
         file_path = os.path.join(BASE_DIR, 'github', 'commitActivity', repo['name'])
         helpers.write_json_files(file_path=file_path, data=commits)
 
