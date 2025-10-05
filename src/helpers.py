@@ -3,7 +3,7 @@ import json
 import os
 import pathlib
 import time
-from typing import Union
+from typing import Callable, Union
 from urllib3 import Retry
 
 # lib imports
@@ -127,3 +127,65 @@ def write_json_files(file_path: str, data: any):
             fp=f,
             indent=4 if os.getenv('ACTIONS_RUNNER_DEBUG') or os.getenv('ACTIONS_STEP_DEBUG') else None,
         )
+
+
+def retry_on_empty_response(
+        fetch_func: Callable,
+        max_retries: int = 5,
+        retry_delay: float = 2.0,
+        validate_func: Callable = None,
+) -> any:
+    """
+    Retry a function call if it returns an empty response.
+
+    This is useful for APIs that return empty objects (e.g., `{}`) when data is still being computed,
+    such as GitHub's stats endpoints.
+
+    Parameters
+    ----------
+    fetch_func : Callable
+        A callable that performs the API request and returns the response data.
+    max_retries : int
+        Maximum number of retry attempts. Default is 5.
+    retry_delay : float
+        Initial delay in seconds between retry attempts. Default is 2.0.
+        This will increase exponentially for each retry attempt.
+    validate_func : Callable
+        Optional custom validation function that takes the response data and returns True if valid.
+        If not provided, checks if response is a non-empty list or non-empty dict.
+
+    Returns
+    -------
+    any
+        The response data from the successful fetch, or the last response if all retries fail.
+
+    Examples
+    --------
+    >>> def fetch_data():
+    ...     response = requests.get('https://api.github.com/repos/github/rest-api-description/commits')
+    ...     return response.json()
+    >>> data = retry_on_empty_response(fetch_data)
+    """
+    result = {}
+
+    for attempt in range(max_retries):
+        result = fetch_func()
+
+        # Use custom validation if provided
+        if validate_func:
+            if validate_func(result):
+                break
+        else:
+            # Default validation: check if we got actual data (not an empty dict or list)
+            if result and (isinstance(result, list) or (isinstance(result, dict) and result)):
+                break
+
+        # If not the last attempt, wait before retrying
+        if attempt < max_retries - 1:
+            current_delay = retry_delay * (2 ** attempt)
+            log.warning(
+                f'Empty response received, retrying in {current_delay} seconds... (attempt {attempt + 1}/{max_retries})'
+            )
+            time.sleep(current_delay)
+
+    return result
