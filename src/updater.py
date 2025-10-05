@@ -279,6 +279,10 @@ def update_github():
             iterable=repos,
             desc='Updating GitHub data',
     ):
+        # skip archived repos
+        if repo['archived']:
+            continue
+
         # if TypeError, API limit has likely been exceeded or a possible issue with GitHub API...
         # https://www.githubstatus.com/
         # do not error handle, better that workflow fails
@@ -396,9 +400,14 @@ def update_readthedocs():
         git_url = project['repository']['url']
         repo_name = git_url.rsplit('/', 1)[-1].rsplit('.git', 1)[0]
 
+        skip_links = [
+            'builds',  # skip builds, too much data and too slow
+            'environmentvariables',  # not needed
+            'notifications',  # not needed
+        ]
         for link in project['_links']:
-            if link == 'builds':
-                continue  # skip builds, too much data and too slow
+            if link in skip_links:
+                continue
 
             file_path = os.path.join(BASE_DIR, 'readthedocs', link, repo_name)
 
