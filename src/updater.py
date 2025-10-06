@@ -4,6 +4,7 @@ from threading import Thread
 
 # lib imports
 from crowdin_api import CrowdinClient
+from github import Github
 import requests
 import svgwrite
 from tqdm import tqdm
@@ -240,80 +241,59 @@ def update_github():
     """
     Cache and update GitHub Repo banners and data.
     """
-    url = f'https://api.github.com/users/{os.environ["GITHUB_REPOSITORY_OWNER"]}/repos'
-    per_page = 100
-    repos = []
+    # Initialize PyGithub client
+    g = Github(os.environ["GITHUB_TOKEN"])
 
-    headers = dict(
-        accept='application/vnd.github.v3+json',
-    )
+    # Get the user/organization
+    owner = g.get_user(os.environ["GITHUB_REPOSITORY_OWNER"])
 
-    query_params = dict(
-        per_page=per_page,
-        page=1,
-    )
+    # Get all repositories
+    repos = list(owner.get_repos())
 
-    while True:
-        response = helpers.s.get(
-            url=url,
-            headers=headers,
-            params=query_params,
-        )
-        response_data = response.json()
-        repos.extend(response_data)
-
-        if len(response_data) < per_page:
-            break
-
-        query_params['page'] += 1
+    # Convert PyGithub repo objects to dict format for JSON serialization
+    repos_data = []
+    for repo in repos:
+        repos_data.append(repo.raw_data)
 
     file_path = os.path.join(BASE_DIR, 'github', 'repos')
-    helpers.write_json_files(file_path=file_path, data=repos)
+    helpers.write_json_files(file_path=file_path, data=repos_data)
 
+    # GraphQL query still uses direct requests
     headers = dict(
         Authorization=f'token {os.environ["GITHUB_TOKEN"]}',
     )
-    url = 'https://api.github.com/graphql'
+    graphql_url = 'https://api.github.com/graphql'
 
     for repo in tqdm(
             iterable=repos,
             desc='Updating GitHub data',
     ):
         # skip archived repos
-        if repo['archived']:
+        if repo.archived:
             continue
 
-        # if TypeError, API limit has likely been exceeded or a possible issue with GitHub API...
-        # https://www.githubstatus.com/
-        # do not error handle, better that workflow fails
-
-        # languages
-        response = helpers.s.get(url=repo['languages_url'], headers=headers)
-        languages = response.json()
-        file_path = os.path.join(BASE_DIR, 'github', 'languages', repo['name'])
+        # languages - use PyGithub
+        languages = repo.get_languages()
+        file_path = os.path.join(BASE_DIR, 'github', 'languages', repo.name)
         helpers.write_json_files(file_path=file_path, data=languages)
 
         # commit activity (last year of activity)
-        commit_activity_url = f"{repo['url']}/stats/commit_activity"
-        commits = helpers.retry_on_empty_response(
-            fetch_func=lambda url=commit_activity_url: helpers.s.get(url=url, headers=headers).json()
-        )
-        # warn if commits are empty
-        if not commits:
-            log.warning(f'Warning: GitHub commit_activity API returned empty response for repo: {repo["name"]}')
-        file_path = os.path.join(BASE_DIR, 'github', 'commitActivity', repo['name'])
+        commit_activity = repo.get_stats_commit_activity()
+        commits = [week.raw_data for week in commit_activity]  # Convert PyGithub objects to dict format
+
+        file_path = os.path.join(BASE_DIR, 'github', 'commitActivity', repo.name)
         helpers.write_json_files(file_path=file_path, data=commits)
 
-        # openGraphImages
+        # openGraphImages - uses GraphQL
         query = """
         {
           repository(owner: "%s", name: "%s") {
             openGraphImageUrl
           }
         }
-        """ % (repo['owner']['login'], repo['name'])
+        """ % (repo.owner.login, repo.name)
 
-        response = helpers.s.post(url=url, json={'query': query}, headers=headers)
+        response = helpers.s.post(url=graphql_url, json={'query': query}, headers=headers)
         repo_data = response.json()
         try:
             image_url = repo_data['data']['repository']['openGraphImageUrl']
@@ -321,7 +301,7 @@ def update_github():
             log.error(f'Error: update_github: {repo_data}')
             raise SystemExit('"GITHUB_TOKEN" is invalid.')
         if 'avatars' not in image_url:
-            file_path = os.path.join(BASE_DIR, 'github', 'openGraphImages', repo['name'])
+            file_path = os.path.join(BASE_DIR, 'github', 'openGraphImages', repo.name)
             helpers.save_image_from_url(
                 file_path=file_path,
                 file_extension='png',
