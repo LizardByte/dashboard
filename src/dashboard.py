@@ -3,7 +3,7 @@ import json
 import os
 
 # lib imports
-from github import Github, PaginatedList, UnknownObjectException
+from github import Github, PaginatedList
 from IPython.display import HTML, display
 from itables import init_notebook_mode, show
 import numpy as np
@@ -106,14 +106,6 @@ def get_repo_data() -> pd.DataFrame:
             if project['repository']['url'] == repo.clone_url:
                 readthedocs_project = project
 
-        # has README.md or README.rst
-        # check if the repo has a README.md or README.rst
-        readme_file = None
-        try:
-            readme_file = repo.get_readme()
-        except UnknownObjectException:
-            pass
-
         repo_data.append({
             "repo": repo.name,
             "stars": repo.stargazers_count,
@@ -130,7 +122,6 @@ def get_repo_data() -> pd.DataFrame:
             "coverage": coverage,
             "readthedocs": readthedocs_project,
             "has_readthedocs": readthedocs_project is not None,
-            "has_readme": readme_file is not None,
             "_repo": repo,
         })
 
@@ -502,7 +493,6 @@ def get_docs_data():
     for repo in df_repos.to_dict('records'):
         docs_data.append({
             "repo": repo['repo'],
-            "has_readme": repo['has_readme'],
             "has_readthedocs": repo['has_readthedocs'],
         })
 
@@ -513,8 +503,6 @@ def get_docs_data():
 def show_docs_data():
     if df_docs_data.empty:
         get_docs_data()
-
-    readme_counts = df_docs_data.groupby(['has_readme', 'repo']).size().reset_index(name='repo_count')
     readthedocs_counts = df_docs_data.groupby(['has_readthedocs', 'repo']).size().reset_index(name='repo_count')
 
     def create_figures(counts: pd.DataFrame, path_key: str):
@@ -532,7 +520,6 @@ def show_docs_data():
 
     # List of tuples containing the data and titles for each figure
     figures_data = [
-        (readme_counts, 'has_readme', 'Has README file'),
         (readthedocs_counts, 'has_readthedocs', 'Uses ReadTheDocs')
     ]
 
