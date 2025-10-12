@@ -34,6 +34,50 @@ def update_aur(aur_repos: list):
         helpers.write_json_files(file_path=file_path, data=data)
 
 
+def process_coverage_response(coverage_response, repo_name: str) -> tuple[list, bool]:
+    """
+    Process a coverage API response and determine if there's more data.
+    """
+    try:
+        coverage_json = coverage_response.json()
+
+        if coverage_response.status_code == 200 and 'results' in coverage_json:
+            results = coverage_json['results']
+            if results:
+                has_more = coverage_json.get('next') is not None
+                return results, has_more
+    except Exception as e:
+        log.warning(f'Error fetching coverage trend for {repo_name}: {e}')
+
+    return [], False
+
+
+def fetch_coverage_trend_for_repo(base_url: str, repo_name: str, headers: dict) -> list:
+    """
+    Fetch coverage trend data for a single repository.
+    """
+    coverage_trend_data = []
+    page = 1
+    has_more = True
+
+    while has_more:
+        coverage_url = f'{base_url}/repos/{repo_name}/coverage/'
+        params = {
+            'interval': '7d',
+            'page': page,
+            'page_size': 100,
+        }
+
+        coverage_response = helpers.s.get(url=coverage_url, headers=headers, params=params)
+        results, has_more = process_coverage_response(coverage_response, repo_name)
+
+        if results:
+            coverage_trend_data.extend(results)
+            page += 1
+
+    return coverage_trend_data
+
+
 def update_codecov():
     """
     Get code coverage data from Codecov API.
@@ -42,7 +86,7 @@ def update_codecov():
         Accept='application/json',
         Authorization=f'bearer {os.environ["CODECOV_TOKEN"]}',
     )
-    base_url = f'https://codecov.io/api/v2/gh/{os.environ["GITHUB_REPOSITORY_OWNER"]}'
+    base_url = f'https://codecov.io/api/v2/github/{os.environ["GITHUB_REPOSITORY_OWNER"]}'
 
     url = f'{base_url}/repos?page_size=500'
 
@@ -63,12 +107,21 @@ def update_codecov():
             iterable=data['results'],
             desc='Updating Codecov data',
     ):
+        # Get repo details
         url = f'{base_url}/repos/{repo["name"]}'
         response = helpers.s.get(url=url, headers=headers)
         data = response.json()
 
         file_path = os.path.join(BASE_DIR, 'codecov', repo['name'])
         helpers.write_json_files(file_path=file_path, data=data)
+
+        # Get coverage trend data
+        coverage_trend_data = fetch_coverage_trend_for_repo(base_url, repo["name"], headers)
+
+        # Save coverage trend data
+        if coverage_trend_data:
+            coverage_trend_path = os.path.join(BASE_DIR, 'codecov', f'{repo["name"]}_coverage_trend')
+            helpers.write_json_files(file_path=coverage_trend_path, data=coverage_trend_data)
 
 
 def sort_crowdin_data(data):
