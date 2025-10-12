@@ -82,10 +82,10 @@ def update_codecov():
     """
     Get code coverage data from Codecov API.
     """
-    headers = dict(
-        Accept='application/json',
-        Authorization=f'bearer {os.environ["CODECOV_TOKEN"]}',
-    )
+    headers = {
+        'Accept': 'application/json',
+        'Authorization': f'bearer {os.environ["CODECOV_TOKEN"]}',
+    }
     base_url = f'https://codecov.io/api/v2/github/{os.environ["GITHUB_REPOSITORY_OWNER"]}'
 
     url = f'{base_url}/repos?page_size=500'
@@ -261,7 +261,7 @@ def update_fb():
     """
     fb_base_url = 'https://graph.facebook.com/'
 
-    fb_endpoints = dict()
+    fb_endpoints = {}
 
     if os.getenv('FACEBOOK_GROUP_ID'):
         fb_endpoints['group'] = (f'{os.environ["FACEBOOK_GROUP_ID"]}?'
@@ -312,9 +312,9 @@ def update_github():
     helpers.write_json_files(file_path=file_path, data=repos_data)
 
     # GraphQL query still uses direct requests
-    headers = dict(
-        Authorization=f'token {os.environ["GITHUB_TOKEN"]}',
-    )
+    headers = {
+        'Authorization': f'token {os.environ["GITHUB_TOKEN"]}',
+    }
     graphql_url = 'https://api.github.com/graphql'
 
     for repo in tqdm(
@@ -472,7 +472,7 @@ def update():
         name='aur',
         target=update_aur,
         threads=threads,
-        kwargs=dict(aur_repos=os.getenv('DASHBOARD_AUR_REPOS').split(',')),
+        kwargs={'aur_repos': os.getenv('DASHBOARD_AUR_REPOS').split(',')},
     )
     append_thread_if_env_set(
         env_vars=['CODECOV_TOKEN', 'GITHUB_REPOSITORY_OWNER'],
