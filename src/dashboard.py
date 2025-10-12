@@ -392,7 +392,7 @@ def show_coverage():
         df_coverage,
         x='repo',
         y='coverage',
-        title='Coverage Percentage',
+        title='Coverage (Current)',
         size='marker_size',
         color='coverage',
         color_continuous_scale=['red', 'yellow', 'green'],  # red is low, green is high
@@ -402,6 +402,67 @@ def show_coverage():
         xaxis_title='Repository',
     )
     fig_scatter.show()
+
+
+def get_coverage_trend_data() -> list:
+    """
+    Get coverage trend data for all repositories from codecov.
+    """
+    if df_repos.empty:
+        get_df_repos()
+
+    coverage_trend_data = []
+    for repo in df_repos.to_dict('records'):
+        trend_file = os.path.join(BASE_DIR, 'codecov', f'{repo["repo"]}_coverage_trend.json')
+
+        if os.path.exists(trend_file):
+            try:
+                with open(trend_file, 'r') as f:
+                    trend_data = json.load(f)
+
+                for entry in trend_data:
+                    # Parse the coverage data - use avg coverage value
+                    if 'avg' in entry and entry['avg'] is not None:
+                        coverage_trend_data.append({
+                            "repo": repo['repo'],
+                            "date": entry.get('timestamp'),
+                            "coverage": entry['avg'],
+                        })
+            except Exception:
+                # Skip repos with no coverage data or errors
+                pass
+
+    return coverage_trend_data
+
+
+def show_coverage_history():
+    """
+    Display coverage history over time for all repositories, similar to star history.
+    """
+    df_coverage_trend = pd.DataFrame(get_coverage_trend_data())
+
+    if df_coverage_trend.empty:
+        print("No coverage trend data available.")
+        return
+
+    # Convert date string to datetime
+    df_coverage_trend['date'] = pd.to_datetime(df_coverage_trend['date'])
+    df_coverage_trend = df_coverage_trend.sort_values(by="date")
+
+    fig = px.line(
+        df_coverage_trend,
+        x="date",
+        y="coverage",
+        color="repo",
+        title="Coverage (History)",
+        labels={"date": "Date", "coverage": "Coverage %"},
+    )
+    fig.update_layout(
+        yaxis_title='Coverage Percentage',
+        xaxis_title='Date',
+        yaxis_range=[0, 100],
+    )
+    fig.show()
 
 
 def get_language_data():
