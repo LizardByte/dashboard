@@ -1,1 +1,1 @@
-{"name": "pacman-repo", "private": false, "updatestamp": "2024-10-17T20:56:26.448711Z", "author": {"service": "github", "username": "LizardByte", "name": "LizardByte"}, "language": "shell", "branch": "master", "active": false, "activated": false, "totals": null}
+{"name": "pacman-repo", "private": false, "updatestamp": "2024-10-17T20:56:26.448711Z", "author": {"service": "github", "username": "LizardByte", "name": "LizardByte"}, "language": "shell", "branch": "master", "active": true, "activated": true, "totals": null}
