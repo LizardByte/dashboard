@@ -1,1 +1,1 @@
-{"data": [{"name": "page_fans", "period": "day", "values": [{"value": 0, "end_time": "2025-11-11T08:00:00+0000"}, {"value": 0, "end_time": "2025-11-12T08:00:00+0000"}], "title": "Lifetime Total Likes", "description": "Lifetime: The total number of people who have liked your Page. (Unique Users)", "id": "106260218330071/insights/page_fans/day"}]}
+{"error": {"message": "An unexpected error has occurred. Please retry your request later.", "type": "OAuthException", "is_transient": true, "code": 2, "fbtrace_id": "A5OAuzmUKmFZ4Qk4G9WocOK"}}
