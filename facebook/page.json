@@ -1,1 +1,1 @@
-{"data": [{"name": "page_fans", "period": "day", "values": [{"value": 69, "end_time": "2025-11-17T08:00:00+0000"}, {"value": 70, "end_time": "2025-11-18T08:00:00+0000"}], "title": "Lifetime Total Likes", "description": "Lifetime: The total number of people who have liked your Page. (Unique Users)", "id": "106260218330071/insights/page_fans/day"}]}
+{"error": {"message": "(#100) The value must be a valid insights metric", "type": "OAuthException", "code": 100, "fbtrace_id": "AyUfqHu9SN-AkVZDj8XtzHE"}}
