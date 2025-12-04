@@ -1,6 +1,6 @@
 cloudscraper==1.2.71
 crowdin-api-client==1.24.1
-ipython==9.7.0
+ipython==9.8.0
 itables==2.5.2
 notebook==7.5.0
 pandas==2.3.3
