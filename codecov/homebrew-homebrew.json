@@ -1,1 +1,1 @@
-{"name": "homebrew-homebrew", "private": false, "updatestamp": "2024-10-17T20:56:21.566070Z", "author": {"service": "github", "username": "LizardByte", "name": "LizardByte"}, "language": "ruby", "branch": "master", "active": false, "activated": false, "totals": null}
+{"name": "homebrew-homebrew", "private": false, "updatestamp": "2024-10-17T20:56:21.566070Z", "author": {"service": "github", "username": "LizardByte", "name": "LizardByte"}, "language": "ruby", "branch": "master", "active": true, "activated": true, "totals": null}
