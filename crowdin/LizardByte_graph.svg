@@ -32,31 +32,31 @@
     <text x="384" y="16">100%</text>
   </g>
   <g class="svg-font" transform="translate(0,96)">
+    <text style="text-anchor:end;" x="200" y="18">Hungarian (hu)</text>
+    <rect fill="#999" height="16" rx="0" ry="0" style="filter:opacity(30%);" width="160" x="212" y="6"/>
+    <rect fill="#5D89C3" height="16" rx="0" ry="0" width="160.0" x="212" y="6"/>
+    <rect fill="#71C277" height="16" rx="0" ry="0" width="100.8" x="212" y="6"/>
+    <text x="384" y="16">100%</text>
+  </g>
+  <g class="svg-font" transform="translate(0,128)">
     <text style="text-anchor:end;" x="200" y="18">Polish (pl)</text>
     <rect fill="#999" height="16" rx="0" ry="0" style="filter:opacity(30%);" width="160" x="212" y="6"/>
     <rect fill="#5D89C3" height="16" rx="0" ry="0" width="160.0" x="212" y="6"/>
     <rect fill="#71C277" height="16" rx="0" ry="0" width="99.2" x="212" y="6"/>
     <text x="384" y="16">100%</text>
   </g>
-  <g class="svg-font" transform="translate(0,128)">
+  <g class="svg-font" transform="translate(0,160)">
     <text style="text-anchor:end;" x="200" y="18">Ukrainian (uk)</text>
     <rect fill="#999" height="16" rx="0" ry="0" style="filter:opacity(30%);" width="160" x="212" y="6"/>
     <rect fill="#5D89C3" height="16" rx="0" ry="0" width="160.0" x="212" y="6"/>
     <rect fill="#71C277" height="16" rx="0" ry="0" width="99.2" x="212" y="6"/>
     <text x="384" y="16">100%</text>
   </g>
-  <g class="svg-font" transform="translate(0,160)">
+  <g class="svg-font" transform="translate(0,192)">
     <text style="text-anchor:end;" x="200" y="18">Spanish (es-ES)</text>
     <rect fill="#999" height="16" rx="0" ry="0" style="filter:opacity(30%);" width="160" x="212" y="6"/>
     <rect fill="#5D89C3" height="16" rx="0" ry="0" width="160.0" x="212" y="6"/>
     <rect fill="#71C277" height="16" rx="0" ry="0" width="92.8" x="212" y="6"/>
-    <text x="384" y="16">100%</text>
-  </g>
-  <g class="svg-font" transform="translate(0,192)">
-    <text style="text-anchor:end;" x="200" y="18">Hungarian (hu)</text>
-    <rect fill="#999" height="16" rx="0" ry="0" style="filter:opacity(30%);" width="160" x="212" y="6"/>
-    <rect fill="#5D89C3" height="16" rx="0" ry="0" width="160.0" x="212" y="6"/>
-    <rect fill="#71C277" height="16" rx="0" ry="0" width="88.0" x="212" y="6"/>
     <text x="384" y="16">100%</text>
   </g>
   <g class="svg-font" transform="translate(0,224)">
