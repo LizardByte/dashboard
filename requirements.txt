@@ -4,7 +4,7 @@ ipython==9.8.0
 itables==2.6.2
 notebook==7.5.1
 pandas==2.3.3
-pillow==12.0.0
+pillow==12.1.0
 plotly==5.24.1
 pygithub==2.8.1
 python-dotenv==1.2.1
