@@ -2,7 +2,7 @@ cloudscraper==1.2.71
 crowdin-api-client==1.25.0
 ipython==9.9.0
 itables==2.6.2
-notebook==7.5.1
+notebook==7.5.2
 pandas==2.3.3
 pillow==12.1.0
 plotly==5.24.1
