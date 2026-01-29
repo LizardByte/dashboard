@@ -11,22 +11,22 @@
     ]]></style>
   </defs>
   <g class="svg-font" transform="translate(0,0)">
+    <text style="text-anchor:end;" x="200" y="18">Ukrainian (uk)</text>
+    <rect fill="#999" height="16" rx="0" ry="0" style="filter:opacity(30%);" width="160" x="212" y="6"/>
+    <rect fill="#5D89C3" height="16" rx="0" ry="0" width="110.39999999999999" x="212" y="6"/>
+    <text x="384" y="16">69%</text>
+  </g>
+  <g class="svg-font" transform="translate(0,32)">
     <text style="text-anchor:end;" x="200" y="18">German (de)</text>
     <rect fill="#999" height="16" rx="0" ry="0" style="filter:opacity(30%);" width="160" x="212" y="6"/>
     <rect fill="#5D89C3" height="16" rx="0" ry="0" width="107.2" x="212" y="6"/>
     <text x="384" y="16">67%</text>
   </g>
-  <g class="svg-font" transform="translate(0,32)">
+  <g class="svg-font" transform="translate(0,64)">
     <text style="text-anchor:end;" x="200" y="18">Turkish (tr)</text>
     <rect fill="#999" height="16" rx="0" ry="0" style="filter:opacity(30%);" width="160" x="212" y="6"/>
     <rect fill="#5D89C3" height="16" rx="0" ry="0" width="59.2" x="212" y="6"/>
     <text x="384" y="16">37%</text>
-  </g>
-  <g class="svg-font" transform="translate(0,64)">
-    <text style="text-anchor:end;" x="200" y="18">Ukrainian (uk)</text>
-    <rect fill="#999" height="16" rx="0" ry="0" style="filter:opacity(30%);" width="160" x="212" y="6"/>
-    <rect fill="#5D89C3" height="16" rx="0" ry="0" width="52.800000000000004" x="212" y="6"/>
-    <text x="384" y="16">33%</text>
   </g>
   <g class="svg-font" transform="translate(0,96)">
     <text style="text-anchor:end;" x="200" y="18">Spanish (es-ES)</text>
