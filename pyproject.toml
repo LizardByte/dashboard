@@ -16,7 +16,7 @@ dependencies = [
     "cloudscraper==1.2.71",
     "crowdin-api-client==1.26.0",
     "ipython==9.11.0",
-    "itables==2.7.0",
+    "itables==2.7.1",
     "notebook==7.5.4",
     "pandas==3.0.1",
     "pillow==12.1.1",
