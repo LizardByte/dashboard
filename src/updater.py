@@ -3,10 +3,8 @@ import os
 from threading import Thread
 
 # lib imports
-from crowdin_api import CrowdinClient
 from github import Github
 import requests
-import svgwrite
 from tqdm import tqdm
 import unhandled_exit
 
@@ -122,118 +120,6 @@ def update_codecov():
         if coverage_trend_data:
             coverage_trend_path = os.path.join(BASE_DIR, 'codecov', f'{repo["name"]}_coverage_trend')
             helpers.write_json_files(file_path=coverage_trend_path, data=coverage_trend_data)
-
-
-def sort_crowdin_data(data):
-    data.sort(key=lambda x: (
-        -x['data']['approvalProgress'],
-        -x['data']['translationProgress'],
-        x['data']['language']['name']
-    ), reverse=False)
-
-    try:
-        en_index = [x['data']['language']['id'] for x in data].index('en')
-    except ValueError:
-        pass
-    else:
-        data.insert(0, data.pop(en_index))
-
-
-def generate_crowdin_svg_graph(data, file_path, project_name):
-    line_height = 32
-    bar_height = 16
-    svg_width = 500
-    label_width = 200
-    progress_width = 160
-    insert = 12
-    bar_corner_radius = 0
-
-    dwg = svgwrite.Drawing(filename=f'{file_path}_graph.svg', size=(svg_width, len(data) * line_height))
-
-    dwg.embed_stylesheet("""
-    @import url(https://fonts.googleapis.com/css?family=Open+Sans);
-    .svg-font {
-        font-family: "Open Sans";
-        font-size: 12px;
-        fill: #999;
-    }
-    """)
-
-    for lang_base in tqdm(
-            iterable=data,
-            desc=f'Generating Crowdin graph for project: {project_name}',
-    ):
-        language = lang_base['data']
-        g = dwg.add(dwg.g(
-            class_="svg-font",
-            transform='translate(0,{})'.format(data.index(lang_base) * line_height)
-        ))
-        g.add(dwg.text(
-            f"{language['language']['name']} ({language['language']['id']})",
-            insert=(label_width, 18),
-            style='text-anchor:end;')
-        )
-
-        translation_progress = language['translationProgress'] / 100.0
-        approval_progress = language['approvalProgress'] / 100.0
-
-        progress_insert = (label_width + insert, 6)
-        if translation_progress < 100:
-            g.add(dwg.rect(
-                insert=progress_insert,
-                size=(progress_width, bar_height),
-                rx=bar_corner_radius,
-                ry=bar_corner_radius,
-                fill='#999',
-                style='filter:opacity(30%);')
-            )
-        if translation_progress > 0 and approval_progress < 100:
-            g.add(dwg.rect(
-                insert=progress_insert,
-                size=(progress_width * translation_progress, bar_height),
-                rx=bar_corner_radius,
-                ry=bar_corner_radius,
-                fill='#5D89C3')
-            )
-        if approval_progress > 0:
-            g.add(dwg.rect(
-                insert=progress_insert,
-                size=(progress_width * approval_progress, bar_height),
-                rx=bar_corner_radius,
-                ry=bar_corner_radius,
-                fill='#71C277')
-            )
-
-        g.add(dwg.text('{}%'.format(language['translationProgress']),
-                       insert=(progress_insert[0] + progress_width + insert, bar_height)))
-
-    dwg.save(pretty=True)
-
-
-def update_crowdin():
-    """
-    Cache and update data from Crowdin API, and generate completion graph.
-    """
-    client = CrowdinClient(
-        token=os.environ['CROWDIN_TOKEN'],
-        retry_delay=2,
-        max_retries=10,
-    )
-
-    project_data = client.projects.list_projects()['data']
-
-    for project in tqdm(
-            iterable=project_data,
-            desc='Updating Crowdin data',
-    ):
-        project_name = project['data']['name']
-        project_id = project['data']['id']
-        data = client.translation_status.get_project_progress(projectId=project_id)['data']
-        file_path = os.path.join(BASE_DIR, 'crowdin', project_name.replace(' ', '_'))
-        helpers.write_json_files(file_path=file_path, data=data)
-
-        sort_crowdin_data(data)
-        generate_crowdin_svg_graph(data, file_path, project_name)
 
 
 def update_discord():
@@ -478,12 +364,6 @@ def update():
         env_vars=['CODECOV_TOKEN', 'GITHUB_REPOSITORY_OWNER'],
         name='codecov',
         target=update_codecov,
-        threads=threads,
-    )
-    append_thread_if_env_set(
-        env_vars=['CROWDIN_TOKEN'],
-        name='crowdin',
-        target=update_crowdin,
         threads=threads,
     )
     append_thread_if_env_set(
