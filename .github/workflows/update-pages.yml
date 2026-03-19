@@ -70,7 +70,6 @@ jobs:
         env:
           DASHBOARD_AUR_REPOS: sunshine,sunshine-bin,sunshine-git
           CODECOV_TOKEN: ${{ secrets.CODECOV_API_TOKEN }}
-          CROWDIN_TOKEN: ${{ secrets.CROWDIN_TOKEN }}
           DISCORD_INVITE: ${{ secrets.DISCORD_INVITE }}
           FACEBOOK_GROUP_ID: ${{ secrets.FACEBOOK_GROUP_ID }}
           FACEBOOK_PAGE_ID: ${{ secrets.FACEBOOK_PAGE_ID }}

@@ -14,7 +14,6 @@ authors = [
 
 dependencies = [
     "cloudscraper==1.2.71",
-    "crowdin-api-client==1.26.0",
     "ipython==9.11.0",
     "itables==2.7.1",
     "notebook==7.5.5",
@@ -24,7 +23,6 @@ dependencies = [
     "pygithub==2.8.1",
     "python-dotenv==1.2.2",
     "requests==2.32.5",
-    "svgwrite==1.4.3",
     "tqdm==4.67.3",
     "unhandled_exit==1.0.0",
 ]
