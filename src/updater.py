@@ -1,9 +1,11 @@
 # standard imports
+import json
 import os
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout
 from threading import Thread
 
 # lib imports
-from github import Github
+from github import Auth, Github
 import requests
 from tqdm import tqdm
 import unhandled_exit
@@ -80,6 +82,15 @@ def update_codecov():
     """
     Get code coverage data from Codecov API.
     """
+    archived_repos = set()
+    repos_path = os.path.join(BASE_DIR, 'github', 'repos.json')
+    if os.path.exists(repos_path):
+        try:
+            with open(repos_path) as f:
+                archived_repos = {r['name'] for r in json.load(f) if r.get('archived')}
+        except Exception as e:
+            log.warning(f'Could not load GitHub repos for archived check: {e}')
+
     headers = {
         'Accept': 'application/json',
         'Authorization': f'bearer {os.environ["CODECOV_TOKEN"]}',
@@ -105,6 +116,9 @@ def update_codecov():
             iterable=data['results'],
             desc='Updating Codecov data',
     ):
+        if repo['name'] in archived_repos:
+            continue
+
         # Get repo details
         url = f'{base_url}/repos/{repo["name"]}'
         response = helpers.s.get(url=url, headers=headers)
@@ -176,12 +190,37 @@ def update_fb():
         helpers.write_json_files(file_path=file_path, data=data)
 
 
+def _get_stats_with_timeout(repo, timeout=60):
+    """
+    Fetch commit activity for a repo, capping total wait time.
+
+    Parameters
+    ----------
+    repo :
+        PyGithub Repository object.
+    timeout : int
+        Maximum seconds to wait before giving up (GitHub may return 202 while
+        computing stats, causing PyGithub to retry indefinitely without this guard).
+
+    Returns
+    -------
+    list or None
+        Weekly commit-activity objects, or None on timeout.
+    """
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        future = pool.submit(repo.get_stats_commit_activity)
+        try:
+            return future.result(timeout=timeout)
+        except FuturesTimeout:
+            log.warning(f'Timeout fetching commit activity for {repo.name}, skipping.')
+            return None
+
+
 def update_github():
     """
     Cache and update GitHub Repo banners and data.
     """
-    # Initialize PyGithub client
-    g = Github(os.environ["GITHUB_TOKEN"])
+    g = Github(auth=Auth.Token(os.environ["GITHUB_TOKEN"]), timeout=30)
 
     # Get the user/organization
     owner = g.get_user(os.environ["GITHUB_REPOSITORY_OWNER"])
@@ -216,12 +255,29 @@ def update_github():
         file_path = os.path.join(BASE_DIR, 'github', 'languages', repo.name)
         helpers.write_json_files(file_path=file_path, data=languages)
 
-        # commit activity (last year of activity)
-        commit_activity = repo.get_stats_commit_activity()
-        commits = [week.raw_data for week in commit_activity]  # Convert PyGithub objects to dict format
+        # commit activity (last year, weekly buckets)
+        commit_activity = _get_stats_with_timeout(repo)
+        if commit_activity:
+            commits = [week.raw_data for week in commit_activity]
+            file_path = os.path.join(BASE_DIR, 'github', 'commitActivity', repo.name)
+            helpers.write_json_files(file_path=file_path, data=commits)
 
-        file_path = os.path.join(BASE_DIR, 'github', 'commitActivity', repo.name)
-        helpers.write_json_files(file_path=file_path, data=commits)
+        # open pull requests
+        pulls_data = []
+        for pr in repo.get_pulls(state='open'):
+            pulls_data.append({
+                'number': pr.number,
+                'title': pr.title,
+                'author': pr.user.login,
+                'labels': [label.name for label in pr.labels],
+                'assignees': [assignee.login for assignee in pr.assignees],
+                'created_at': pr.created_at.isoformat(),
+                'updated_at': pr.updated_at.isoformat(),
+                'draft': pr.draft,
+                'milestone': pr.milestone.title if pr.milestone else None,
+            })
+        file_path = os.path.join(BASE_DIR, 'github', 'pulls', repo.name)
+        helpers.write_json_files(file_path=file_path, data=pulls_data)
 
         # openGraphImages - uses GraphQL
         query = """
@@ -351,69 +407,83 @@ def append_thread_if_env_set(
 
 
 def update():
-    threads = []
+    # Threads that are fully independent of each other and of GitHub data.
+    independent_threads = []
 
     append_thread_if_env_set(
         env_vars=['DASHBOARD_AUR_REPOS'],
         name='aur',
         target=update_aur,
-        threads=threads,
+        threads=independent_threads,
         kwargs={'aur_repos': os.getenv('DASHBOARD_AUR_REPOS').split(',')},
-    )
-    append_thread_if_env_set(
-        env_vars=['CODECOV_TOKEN', 'GITHUB_REPOSITORY_OWNER'],
-        name='codecov',
-        target=update_codecov,
-        threads=threads,
     )
     append_thread_if_env_set(
         env_vars=['DISCORD_INVITE'],
         name='discord',
         target=update_discord,
-        threads=threads,
+        threads=independent_threads,
     )
     append_thread_if_env_set(
         env_vars=['FACEBOOK_TOKEN', 'FACEBOOK_PAGE_ID'],
         name='facebook',
         target=update_fb,
-        threads=threads,
-    )
-    append_thread_if_env_set(
-        env_vars=['GITHUB_TOKEN', 'GITHUB_REPOSITORY_OWNER'],
-        name='github',
-        target=update_github,
-        threads=threads,
+        threads=independent_threads,
     )
     append_thread_if_env_set(
         env_vars=['PATREON_CAMPAIGN_ID'],
         name='patreon',
         target=update_patreon,
-        threads=threads,
+        threads=independent_threads,
     )
     append_thread_if_env_set(
         env_vars=['READTHEDOCS_TOKEN'],
         name='readthedocs',
         target=update_readthedocs,
-        threads=threads,
+        threads=independent_threads,
+    )
+
+    # GitHub must finish before Codecov so that repos.json is up to date and
+    # update_codecov() can correctly skip archived repos.
+    github_threads = []
+    append_thread_if_env_set(
+        env_vars=['GITHUB_TOKEN', 'GITHUB_REPOSITORY_OWNER'],
+        name='github',
+        target=update_github,
+        threads=github_threads,
+    )
+
+    codecov_threads = []
+    append_thread_if_env_set(
+        env_vars=['CODECOV_TOKEN', 'GITHUB_REPOSITORY_OWNER'],
+        name='codecov',
+        target=update_codecov,
+        threads=codecov_threads,
     )
 
     # setup threading exception handling
     if os.getenv('THREADING_EXCEPTION_HANDLER'):
         unhandled_exit.activate()
 
-    for thread in tqdm(
-            iterable=threads,
-            desc='Starting threads',
-    ):
+    # Phase 1: start independent threads and GitHub in parallel.
+    for thread in tqdm(iterable=independent_threads + github_threads, desc='Starting threads'):
         thread.start()
 
-    # wait for all threads to finish
-    for thread in tqdm(
-            iterable=threads,
-            desc='Waiting for threads to finish',
-    ):
+    # Wait for GitHub before starting Codecov.
+    for thread in tqdm(iterable=github_threads, desc='Waiting for GitHub thread'):
+        thread.join()
+
+    # Phase 2: start Codecov now that repos.json is fresh.
+    for thread in tqdm(iterable=codecov_threads, desc='Starting Codecov thread'):
+        thread.start()
+
+    # Wait for all remaining threads.
+    for thread in tqdm(iterable=independent_threads + codecov_threads, desc='Waiting for threads to finish'):
         thread.join()
 
     # deactivate threading exception handling
     if os.getenv('THREADING_EXCEPTION_HANDLER'):
         unhandled_exit.deactivate()
+
+
+if __name__ == '__main__':
+    update()

@@ -1,0 +1,120 @@
+---
+title: Dashboard
+layout: page
+full-width: true
+after-content:
+  - donate.html
+  - support.html
+
+ext-css:
+  - href: https://cdn.datatables.net/2.2.2/css/dataTables.bootstrap5.min.css
+
+ext-js:
+  - https://cdn.plot.ly/plotly-2.35.3.min.js
+  - https://cdn.datatables.net/2.2.2/js/dataTables.min.js
+  - https://cdn.datatables.net/2.2.2/js/dataTables.bootstrap5.min.js
+
+js:
+  - /dashboard/assets/js/dashboard.js
+---
+
+<script>
+globalThis.DASHBOARD_CONFIG = {
+  base_path: "{{ site.baseurl }}"
+};
+</script>
+
+<div id="loading-msg" class="text-center my-5">
+  <div class="spinner-border text-primary" role="status">
+    <span class="visually-hidden">Loading...</span>
+  </div>
+  <p class="mt-2 text-muted">Loading dashboard data&hellip;</p>
+</div>
+
+<div id="dashboard-content" style="display:none">
+
+  <!-- Summary stats -->
+  <div class="row mb-4" id="summary-stats"></div>
+
+  <!-- Section nav -->
+  <nav class="navbar navbar-expand bg-body-secondary rounded mb-4 px-3 py-1 d-none d-md-flex">
+    <ul class="navbar-nav flex-row flex-wrap gap-3 small justify-content-center mx-auto">
+      <li class="nav-item"><a class="nav-link py-0" href="#stars">Stars</a></li>
+      <li class="nav-item"><a class="nav-link py-0" href="#forks">Forks</a></li>
+      <li class="nav-item"><a class="nav-link py-0" href="#issues">Issues</a></li>
+      <li class="nav-item"><a class="nav-link py-0" href="#prs">PRs</a></li>
+      <li class="nav-item"><a class="nav-link py-0" href="#license">License</a></li>
+      <li class="nav-item"><a class="nav-link py-0" href="#coverage">Coverage</a></li>
+      <li class="nav-item"><a class="nav-link py-0" href="#commit-activity">Commit Activity</a></li>
+      <li class="nav-item"><a class="nav-link py-0" href="#languages">Languages</a></li>
+      <li class="nav-item"><a class="nav-link py-0" href="#docs">Docs</a></li>
+    </ul>
+  </nav>
+
+  <!-- Stars -->
+  <section id="stars" class="mb-5">
+    <h2>Star Gazers</h2>
+    <div id="chart-stars" style="height:450px"></div>
+  </section>
+
+  <!-- Forks -->
+  <section id="forks" class="mb-5">
+    <h2>Forks</h2>
+    <div id="chart-forks" style="height:450px"></div>
+  </section>
+
+  <!-- Open Issues -->
+  <section id="issues" class="mb-5">
+    <h2>Open Issues</h2>
+    <div id="chart-issues" style="height:450px"></div>
+  </section>
+
+  <!-- Pull Requests -->
+  <section id="prs" class="mb-5">
+    <h2>Open Pull Requests</h2>
+    <h3>By Status</h3>
+    <div id="chart-prs" style="height:450px"></div>
+    <h3 class="mt-4">PR Details</h3>
+    <div id="table-prs" class="table-responsive mt-2"></div>
+  </section>
+
+  <!-- License Distribution -->
+  <section id="license" class="mb-5">
+    <h2>License Distribution</h2>
+    <div id="chart-license" style="height:500px"></div>
+  </section>
+
+  <!-- Coverage -->
+  <section id="coverage" class="mb-5">
+    <h2>Coverage</h2>
+    <h3>Current</h3>
+    <div id="chart-coverage" style="height:450px"></div>
+    <h3 class="mt-4">History</h3>
+    <div id="chart-coverage-history" style="height:450px"></div>
+  </section>
+
+  <!-- Languages -->
+  <section id="languages" class="mb-5">
+    <h2>Programming Languages</h2>
+    <h3>By Bytes of Code</h3>
+    <div id="chart-languages-bytes" style="height:500px"></div>
+    <h3 class="mt-4">By Repository Count</h3>
+    <div id="chart-languages-repos" style="height:500px"></div>
+  </section>
+
+  <!-- Commit Activity -->
+  <section id="commit-activity" class="mb-5">
+    <h2>Commit Activity</h2>
+    <h3>All Repositories (Weekly)</h3>
+    <div id="chart-commit-activity-weekly" style="height:400px"></div>
+    <h3 class="mt-4">Per Repository (Weekly)</h3>
+    <div id="chart-commit-activity-repos" style="height:450px"></div>
+  </section>
+
+  <!-- Documentation -->
+  <section id="docs" class="mb-5">
+    <h2>Documentation</h2>
+    <div id="chart-docs" style="height:500px"></div>
+  </section>
+
+</div>
