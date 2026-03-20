@@ -199,10 +199,26 @@ function renderPRTable(prs) {
             });
         });
         const dt = new DataTable('#pr-datatable', {
-            pageLength: 25,
+            pageLength: 10,
             lengthMenu: [10, 25, 50, 100],
             order: [[7, 'asc']],
             orderCellsTop: true,
+            autoFill: true,
+            layout: {
+                topStart: [
+                    'pageLength',
+                    {
+                        buttons: [
+                            'copy',
+                            'csv',
+                            'excel',
+                        ],
+                    },
+                ],
+                topEnd: 'search',
+                bottomStart: 'info',
+                bottomEnd: 'paging',
+            },
         });
         filterInputs.forEach((input, i) => {
             input.addEventListener('input', () => {
@@ -231,7 +247,7 @@ function renderPRTable(prs) {
         const opt = document.createElement('option');
         opt.value = String(n);
         opt.textContent = String(n);
-        if (n === 25) opt.selected = true;
+        if (n === 10) opt.selected = true;
         lengthSel.appendChild(opt);
     });
     const lengthLabel = document.createElement('label');
