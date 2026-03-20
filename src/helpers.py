@@ -17,22 +17,32 @@ from src.logger import log
 
 # constants
 HTTPS = 'https://'
+DEFAULT_TIMEOUT = 30  # seconds
 
 # setup requests sessions
 retry_adapter = HTTPAdapter(max_retries=Retry(total=5, backoff_factor=1))
+
+
+class TimeoutSession(requests.Session):
+    """A requests.Session that applies a default timeout to every request."""
+
+    def request(self, *args, **kwargs):
+        kwargs.setdefault('timeout', DEFAULT_TIMEOUT)
+        return super().request(*args, **kwargs)
+
 
 # cloudscraper session
 cs = cloudscraper.CloudScraper()  # CloudScraper inherits from requests.Session
 cs.mount(HTTPS, retry_adapter)
 
 # requests session
-s = requests.Session()
+s = TimeoutSession()
 s.mount(HTTPS, retry_adapter)
 
 
-class RateLimitedSession(requests.Session):
+class RateLimitedSession(TimeoutSession):
     """
-    A requests.Session subclass that implements rate limiting.
+    A TimeoutSession subclass that implements rate limiting.
     """
     def __init__(self, calls_per_minute=60):
         super().__init__()
