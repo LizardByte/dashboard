@@ -87,6 +87,33 @@ function renderBarChart(divId, entries) {
     }), CONFIG);
 }
 
+// Star history line chart
+function renderStarHistory(history) {
+    const el = document.getElementById('chart-star-history');
+    if (!el) return;
+    if (!history?.length) {
+        el.innerHTML = '<p class="text-muted">No star history available.</p>';
+        return;
+    }
+    const byRepo = {};
+    history.forEach(({ repo, date, stars }) => {
+        if (!byRepo[repo]) byRepo[repo] = { x: [], y: [] };
+        byRepo[repo].x.push(date);
+        byRepo[repo].y.push(stars);
+    });
+    const traces = Object.entries(byRepo)
+        .sort((a, b) => {
+            const lastA = a[1].y.at(-1) ?? 0;
+            const lastB = b[1].y.at(-1) ?? 0;
+            return lastB - lastA;
+        })
+        .map(([repo, d]) => ({ name: repo, x: d.x, y: d.y, mode: 'lines+markers', type: 'scatter' }));
+    Plotly.newPlot('chart-star-history', traces, themeLayout({
+        yaxis: { title: 'Stars' },
+        margin: { t: 30, r: 20, b: 60, l: 60 },
+    }), CONFIG);
+}
+
 // PRs bar chart
 function renderPRsBarChart(active, prs) {
     const el = document.getElementById('chart-prs');
@@ -483,12 +510,13 @@ document.addEventListener('DOMContentLoaded', async () => {
     const loadingEl = document.getElementById('loading-msg');
     const contentEl = document.getElementById('dashboard-content');
     try {
-        const [repos, prs, metadata, coverageHistory, commitActivity] = await Promise.all([
+        const [repos, prs, metadata, coverageHistory, commitActivity, starHistory] = await Promise.all([
             fetchJSON('repos.json'),
             fetchJSON('prs.json'),
             fetchJSON('metadata.json'),
             fetchJSON('coverage_history.json').catch(() => []),
             fetchJSON('commit_activity.json').catch(() => []),
+            fetchJSON('star_history.json').catch(() => []),
         ]);
 
         const active = activeRepos(repos);
@@ -514,6 +542,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         renderSummary(active, activePRs, metadata);
         renderBarChart('chart-stars', active.map(r => ({ name: r.name, value: r.stars })));
+        renderStarHistory(starHistory);
         renderBarChart('chart-forks', active.map(r => ({ name: r.name, value: r.forks })));
         renderBarChart('chart-issues', active.map(r => ({ name: r.name, value: r.issues })));
         renderPRsBarChart(active, activePRs);

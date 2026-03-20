@@ -120,6 +120,34 @@ def _get_commit_activity(base_dir: str, name: str) -> list:
         return []
 
 
+def _get_star_history(base_dir: str, name: str) -> list:
+    """
+    Read the cached sampled star history for a repo.
+
+    Parameters
+    ----------
+    base_dir : str
+        Root directory containing the gh-pages data.
+    name : str
+        Repository name.
+
+    Returns
+    -------
+    list
+        List of dicts with keys ``repo``, ``date``, and ``stars``.
+    """
+    safe = _safe_name(name)
+    path = os.path.join(base_dir, 'github', 'starHistory', f'{safe}.json')
+    if not os.path.exists(path):
+        return []
+    try:
+        with open(path) as f:
+            data = json.load(f)
+        return [{'repo': name, 'date': e['date'], 'stars': e['stars']} for e in data]
+    except Exception:
+        return []
+
+
 def _build_repo_entry(repo: dict, coverage: float, languages: dict, prs: list, rtd_repos: set) -> dict:
     name = repo['name']
     pr_count = len(prs)
@@ -170,6 +198,7 @@ def build():
     prs_all = []
     coverage_history = []
     commit_activity = []
+    star_history = []
 
     for repo in raw_repos:
         if repo.get('private') or repo.get('archived'):
@@ -184,6 +213,7 @@ def build():
         languages = _get_languages(BASE_DIR, name)
         prs = _get_prs(BASE_DIR, name)
         commit_activity.extend(_get_commit_activity(BASE_DIR, name))
+        star_history.extend(_get_star_history(BASE_DIR, name))
 
         repos.append(_build_repo_entry(repo, coverage, languages, prs, rtd_repos))
         prs_all.extend({'repo': name, **pr} for pr in prs)
@@ -201,6 +231,7 @@ def build():
     write_json('prs.json', prs_all)
     write_json('coverage_history.json', coverage_history)
     write_json('commit_activity.json', commit_activity)
+    write_json('star_history.json', star_history)
     write_json('metadata.json', {
         'updated_at': datetime.now(timezone.utc).isoformat(),
         'repo_count': len(repos),

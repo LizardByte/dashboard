@@ -1,7 +1,9 @@
 # standard imports
 import json
+import math
 import os
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout
+from datetime import datetime, timezone
 from threading import Thread
 
 # lib imports
@@ -216,11 +218,189 @@ def _get_stats_with_timeout(repo, timeout=60):
             return None
 
 
+def _seed_star_history(repo, total: int, initial_samples: int) -> list[dict]:
+    """
+    Fetch evenly-spaced pages from the stargazers API for a first-time seed.
+
+    Parameters
+    ----------
+    repo :
+        PyGithub Repository object.
+    total : int
+        Current star count (used to calculate page spread).
+    initial_samples : int
+        Maximum number of pages to request.
+
+    Returns
+    -------
+    list
+        Unsorted list of ``{date, stars}`` dicts sampled across the history.
+    """
+    per_page = 100
+    total_pages = math.ceil(total / per_page)
+
+    if total_pages <= initial_samples:
+        pages_to_fetch = list(range(total_pages))
+    else:
+        pages_to_fetch = sorted({
+            round(i * (total_pages - 1) / (initial_samples - 1))
+            for i in range(initial_samples)
+        })
+
+    history = []
+    stargazers = repo.get_stargazers_with_dates()
+    for page_idx in pages_to_fetch:
+        try:
+            page = stargazers.get_page(page_idx)
+            if not page:
+                continue
+            history.append({
+                'date': page[0].starred_at.strftime('%Y-%m-%d'),
+                'stars': page_idx * per_page + 1,
+            })
+            if len(page) > 1:
+                history.append({
+                    'date': page[-1].starred_at.strftime('%Y-%m-%d'),
+                    'stars': page_idx * per_page + len(page),
+                })
+        except Exception as e:
+            log.warning(f'Error fetching star history page {page_idx} for {repo.name}: {e}')
+
+    return history
+
+
+def _collect_star_history(repo, initial_samples: int = 5) -> list:
+    """
+    Build a cumulative star-history time series for a repository.
+
+    On the first call for a repo the function seeds the history by fetching a
+    small number of evenly-spaced API pages (``initial_samples``).  On every
+    subsequent call it reads the cached file and appends only today's current
+    star count, so **no additional API requests are made after the initial
+    seed**.
+
+    Parameters
+    ----------
+    repo :
+        PyGithub Repository object.
+    initial_samples : int
+        Number of pages to fetch when no cached history exists yet.
+
+    Returns
+    -------
+    list
+        List of dicts with keys ``date`` (YYYY-MM-DD) and ``stars``
+        (cumulative star count at that point in time).
+    """
+    total = repo.stargazers_count
+    if total == 0:
+        return []
+
+    today = datetime.now(tz=timezone.utc).strftime('%Y-%m-%d')
+    cache_path = os.path.join(BASE_DIR, 'github', 'starHistory', f'{repo.name}.json')
+
+    existing = []
+    if os.path.exists(cache_path):
+        try:
+            with open(cache_path) as f:
+                existing = json.load(f)
+        except Exception:
+            pass
+
+    if existing:
+        if existing[-1]['date'] == today:
+            existing[-1]['stars'] = total
+        else:
+            existing.append({'date': today, 'stars': total})
+        return existing
+
+    history: list[dict] = list(_seed_star_history(repo, total, initial_samples))
+    if not history or history[-1]['date'] != today:
+        history.append({'date': today, 'stars': total})
+    return history
+
+
+def _process_github_repo(repo, headers: dict, graphql_url: str) -> None:
+    """
+    Collect and cache all per-repository data for a single GitHub repo.
+
+    Parameters
+    ----------
+    repo :
+        PyGithub Repository object.
+    headers : dict
+        HTTP headers including the GitHub authorisation token.
+    graphql_url : str
+        GitHub GraphQL endpoint URL.
+    """
+    # languages
+    languages = repo.get_languages()
+    file_path = os.path.join(BASE_DIR, 'github', 'languages', repo.name)
+    helpers.write_json_files(file_path=file_path, data=languages)
+
+    # commit activity (last year, weekly buckets)
+    commit_activity = _get_stats_with_timeout(repo)
+    if commit_activity:
+        commits = [week.raw_data for week in commit_activity]
+        file_path = os.path.join(BASE_DIR, 'github', 'commitActivity', repo.name)
+        helpers.write_json_files(file_path=file_path, data=commits)
+
+    # open pull requests
+    pulls_data = []
+    for pr in repo.get_pulls(state='open'):
+        pulls_data.append({
+            'number': pr.number,
+            'title': pr.title,
+            'author': pr.user.login,
+            'labels': [label.name for label in pr.labels],
+            'assignees': [assignee.login for assignee in pr.assignees],
+            'created_at': pr.created_at.isoformat(),
+            'updated_at': pr.updated_at.isoformat(),
+            'draft': pr.draft,
+            'milestone': pr.milestone.title if pr.milestone else None,
+        })
+    file_path = os.path.join(BASE_DIR, 'github', 'pulls', repo.name)
+    helpers.write_json_files(file_path=file_path, data=pulls_data)
+
+    # star history (sampled to cap API calls)
+    star_history = _collect_star_history(repo)
+    if star_history:
+        file_path = os.path.join(BASE_DIR, 'github', 'starHistory', repo.name)
+        helpers.write_json_files(file_path=file_path, data=star_history)
+
+    # openGraphImages - uses GraphQL
+    query = """
+    {
+      repository(owner: "%s", name: "%s") {
+        openGraphImageUrl
+      }
+    }
+    """ % (repo.owner.login, repo.name)
+
+    response = helpers.s.post(url=graphql_url, json={'query': query}, headers=headers)
+    repo_data = response.json()
+    try:
+        image_url = repo_data['data']['repository']['openGraphImageUrl']
+    except KeyError:
+        log.error(f'Error: update_github: {repo_data}')
+        raise SystemExit('"GITHUB_TOKEN" is invalid.')
+    if 'avatars' not in image_url:
+        file_path = os.path.join(BASE_DIR, 'github', 'openGraphImages', repo.name)
+        helpers.save_image_from_url(
+            file_path=file_path,
+            file_extension='png',
+            image_url=image_url,
+            size_x=624,
+            size_y=312,
+        )
+
+
 def update_github():
     """
     Cache and update GitHub Repo banners and data.
     """
     g = Github(auth=Auth.Token(os.environ["GITHUB_TOKEN"]), timeout=30)
+    g.per_page = 100
 
     # Get the user/organization
     owner = g.get_user(os.environ["GITHUB_REPOSITORY_OWNER"])
@@ -246,64 +426,9 @@ def update_github():
             iterable=repos,
             desc='Updating GitHub data',
     ):
-        # skip archived repos
         if repo.archived:
             continue
-
-        # languages - use PyGithub
-        languages = repo.get_languages()
-        file_path = os.path.join(BASE_DIR, 'github', 'languages', repo.name)
-        helpers.write_json_files(file_path=file_path, data=languages)
-
-        # commit activity (last year, weekly buckets)
-        commit_activity = _get_stats_with_timeout(repo)
-        if commit_activity:
-            commits = [week.raw_data for week in commit_activity]
-            file_path = os.path.join(BASE_DIR, 'github', 'commitActivity', repo.name)
-            helpers.write_json_files(file_path=file_path, data=commits)
-
-        # open pull requests
-        pulls_data = []
-        for pr in repo.get_pulls(state='open'):
-            pulls_data.append({
-                'number': pr.number,
-                'title': pr.title,
-                'author': pr.user.login,
-                'labels': [label.name for label in pr.labels],
-                'assignees': [assignee.login for assignee in pr.assignees],
-                'created_at': pr.created_at.isoformat(),
-                'updated_at': pr.updated_at.isoformat(),
-                'draft': pr.draft,
-                'milestone': pr.milestone.title if pr.milestone else None,
-            })
-        file_path = os.path.join(BASE_DIR, 'github', 'pulls', repo.name)
-        helpers.write_json_files(file_path=file_path, data=pulls_data)
-
-        # openGraphImages - uses GraphQL
-        query = """
-        {
-          repository(owner: "%s", name: "%s") {
-            openGraphImageUrl
-          }
-        }
-        """ % (repo.owner.login, repo.name)
-
-        response = helpers.s.post(url=graphql_url, json={'query': query}, headers=headers)
-        repo_data = response.json()
-        try:
-            image_url = repo_data['data']['repository']['openGraphImageUrl']
-        except KeyError:
-            log.error(f'Error: update_github: {repo_data}')
-            raise SystemExit('"GITHUB_TOKEN" is invalid.')
-        if 'avatars' not in image_url:
-            file_path = os.path.join(BASE_DIR, 'github', 'openGraphImages', repo.name)
-            helpers.save_image_from_url(
-                file_path=file_path,
-                file_extension='png',
-                image_url=image_url,
-                size_x=624,
-                size_y=312,
-            )
+        _process_github_repo(repo, headers, graphql_url)
 
 
 def update_patreon():
