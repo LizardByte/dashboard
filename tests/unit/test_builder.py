@@ -98,6 +98,33 @@ def test_get_languages_prs_commit_activity_and_star_history_fallbacks(tmp_path):
     assert builder._get_star_history(str(tmp_path), 'demo') == []
 
 
+def test_get_code_scanning_open_and_history(tmp_path):
+    _write_json(tmp_path / 'github' / 'codeScanning' / 'demo.json', {'open': 3})
+    _write_json(tmp_path / 'github' / 'codeScanningHistory' / 'demo.json', [
+        {'date': '2026-01-01', 'open': 1},
+        {'date': '2026-01-02', 'open': 3},
+    ])
+
+    assert builder._get_code_scanning_open(str(tmp_path), 'demo') == 3
+    assert builder._get_code_scanning_history(str(tmp_path), 'demo') == [
+        {'repo': 'demo', 'date': '2026-01-01', 'open': 1},
+        {'repo': 'demo', 'date': '2026-01-02', 'open': 3},
+    ]
+
+
+def test_get_code_scanning_open_and_history_fallbacks(tmp_path):
+    assert builder._get_code_scanning_open(str(tmp_path), 'demo') == 0
+    assert builder._get_code_scanning_history(str(tmp_path), 'demo') == []
+
+    _write_json(tmp_path / 'github' / 'codeScanning' / 'demo.json', {'open': 'x'})
+    _write_json(tmp_path / 'github' / 'codeScanningHistory' / 'demo.json', [{'bad': 1}])
+    assert builder._get_code_scanning_open(str(tmp_path), 'demo') == 0
+    assert builder._get_code_scanning_history(str(tmp_path), 'demo') == []
+
+    _write_json(tmp_path / 'github' / 'codeScanningHistory' / 'demo.json', [{'date': '2026-01-01', 'open': 'bad'}])
+    assert builder._get_code_scanning_history(str(tmp_path), 'demo') == []
+
+
 def test_build_repo_entry_computes_counts_and_license():
     repo = {
         'name': 'demo',
@@ -109,17 +136,18 @@ def test_build_repo_entry_computes_counts_and_license():
         'created_at': 'x',
         'updated_at': 'y',
     }
-    out = builder._build_repo_entry(repo, 80.0, {'Python': 100}, [{'id': 1}], {'demo'})
+    out = builder._build_repo_entry(repo, 80.0, {'Python': 100}, [{'id': 1}], {'demo'}, 4)
 
     assert out['issues'] == 2
     assert out['prs'] == 1
     assert out['license'] == 'No License'
     assert out['has_readthedocs'] is True
+    assert out['code_scanning_open'] == 4
 
     repo['license'] = {'spdx_id': 'MIT'}
-    assert builder._build_repo_entry(repo, 80.0, {}, [], set())['license'] == 'MIT'
+    assert builder._build_repo_entry(repo, 80.0, {}, [], set(), 0)['license'] == 'MIT'
     repo['license'] = {'name': 'Apache-2.0'}
-    assert builder._build_repo_entry(repo, 80.0, {}, [], set())['license'] == 'Apache-2.0'
+    assert builder._build_repo_entry(repo, 80.0, {}, [], set(), 0)['license'] == 'Apache-2.0'
 
 
 def test_build_end_to_end(monkeypatch, tmp_path):
@@ -152,6 +180,8 @@ def test_build_end_to_end(monkeypatch, tmp_path):
     _write_json(base / 'github' / 'pulls' / 'demo.json', [{'number': 7, 'title': 'PR'}])
     _write_json(base / 'github' / 'commitActivity' / 'demo.json', [{'week': 86400, 'total': 2}])
     _write_json(base / 'github' / 'starHistory' / 'demo.json', [{'date': '2026-01-01', 'stars': 4}])
+    _write_json(base / 'github' / 'codeScanning' / 'demo.json', {'open': 5})
+    _write_json(base / 'github' / 'codeScanningHistory' / 'demo.json', [{'date': '2026-01-04', 'open': 5}])
     _write_json(base / 'readthedocs' / 'projects.json', [
         {'repository': {'url': 'https://github.com/LizardByte/demo.git'}}])
 
@@ -172,6 +202,10 @@ def test_build_end_to_end(monkeypatch, tmp_path):
     built_repos = json.loads((data_dir / 'repos.json').read_text(encoding='utf-8'))
     assert len(built_repos) == 1
     assert built_repos[0]['coverage'] == pytest.approx(91.0)
+    assert built_repos[0]['code_scanning_open'] == 5
+
+    built_history = json.loads((data_dir / 'code_scanning_history.json').read_text(encoding='utf-8'))
+    assert built_history == [{'repo': 'demo', 'date': '2026-01-04', 'open': 5}]
 
     metadata = json.loads((data_dir / 'metadata.json').read_text(encoding='utf-8'))
     assert metadata['repo_count'] == 1
