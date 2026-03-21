@@ -168,3 +168,7 @@ gh-pages/
 # node modules
 node_modules/
 package-lock.json
+
+# test results
+coverage/
+junit*.xml
