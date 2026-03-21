@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from types import SimpleNamespace
 
 # lib imports
+from github.GithubException import GithubException
 import pytest
 import requests
 
@@ -82,6 +83,9 @@ class FakeRepo:
             0: [FakeStargazer('2026-01-01'), FakeStargazer('2026-01-02')],
             1: [FakeStargazer('2026-01-03')],
         })
+
+    def get_codescan_alerts(self, **kwargs):
+        return []
 
 
 def test_update_aur(monkeypatch):
@@ -329,6 +333,12 @@ def test_process_github_repo(monkeypatch, tmp_path):
     )
     monkeypatch.setattr(updater, '_get_stats_with_timeout', lambda repo: [FakeWeek(1, 1)])
     monkeypatch.setattr(updater, '_collect_star_history', lambda repo: [{'date': '2026-01-01', 'stars': 1}])
+    monkeypatch.setattr(updater, '_fetch_code_scanning_alerts', lambda repo: [])
+    monkeypatch.setattr(
+        updater,
+        '_build_code_scanning_history',
+        lambda alerts: [{'date': '2026-01-01', 'open': 0}],
+    )
 
     def post_ok(url, json, headers):
         return FakeResponse({'data': {'repository': {'openGraphImageUrl': 'https://example.com/image.png'}}})
@@ -338,6 +348,9 @@ def test_process_github_repo(monkeypatch, tmp_path):
     updater._process_github_repo(FakeRepo(name='demo'), {'Authorization': 'x'}, 'https://api.github.com/graphql')
 
     assert any(path.endswith('languages\\demo') or path.endswith('languages/demo') for path, _ in writes)
+    assert any(path.endswith('codeScanning\\demo') or path.endswith('codeScanning/demo') for path, _ in writes)
+    assert any(
+        path.endswith('codeScanningHistory\\demo') or path.endswith('codeScanningHistory/demo') for path, _ in writes)
     assert any(path == 'img' for path, _ in writes)
 
 
@@ -346,6 +359,8 @@ def test_process_github_repo_error_and_avatar_skip(monkeypatch, tmp_path):
     monkeypatch.setattr(updater.helpers, 'write_json_files', lambda **kwargs: None)
     monkeypatch.setattr(updater, '_get_stats_with_timeout', lambda repo: None)
     monkeypatch.setattr(updater, '_collect_star_history', lambda repo: [])
+    monkeypatch.setattr(updater, '_fetch_code_scanning_alerts', lambda repo: [])
+    monkeypatch.setattr(updater, '_build_code_scanning_history', lambda alerts: [])
 
     monkeypatch.setattr(
         updater.helpers.s,
@@ -503,3 +518,119 @@ def test_append_thread_if_env_set_and_update(monkeypatch):
     assert 'codecov' in joined
     assert 'activate' in started
     assert 'deactivate' in joined
+
+
+def test_fetch_code_scanning_alerts(monkeypatch):
+    repo = FakeRepo(name='demo')
+
+    class Alert:
+        def __init__(self, state):
+            self.state = state
+
+    alerts = [Alert('open'), Alert('dismissed'), Alert('open')]
+    monkeypatch.setattr(repo, 'get_codescan_alerts', lambda **kwargs: alerts)
+
+    result = updater._fetch_code_scanning_alerts(repo)
+    assert result == alerts
+
+
+def test_fetch_code_scanning_alerts_404_skip(monkeypatch):
+    repo = FakeRepo(name='demo')
+
+    warnings = []
+    monkeypatch.setattr(updater.log, 'warning', lambda msg: warnings.append(msg))
+
+    def raise_404():
+        raise GithubException(status=404, data={'message': 'no analysis found'})
+
+    monkeypatch.setattr(repo, 'get_codescan_alerts', lambda **kwargs: raise_404())
+
+    assert updater._fetch_code_scanning_alerts(repo) == []
+    assert warnings
+
+
+def test_build_code_scanning_history_empty():
+    assert updater._build_code_scanning_history([]) == []
+
+
+def test_build_code_scanning_history_no_timestamps():
+    class Alert:
+        created_at = None
+        dismissed_at = None
+        fixed_at = None
+
+    assert updater._build_code_scanning_history([Alert()]) == []
+
+
+def test_build_code_scanning_history_mixed_no_created_at():
+    class Alert:
+        def __init__(self, created, dismissed=None, fixed=None):
+            self.created_at = (
+                datetime.fromisoformat(created).replace(tzinfo=timezone.utc) if created else None
+            )
+            self.dismissed_at = (
+                datetime.fromisoformat(dismissed).replace(tzinfo=timezone.utc) if dismissed else None
+            )
+            self.fixed_at = (
+                datetime.fromisoformat(fixed).replace(tzinfo=timezone.utc) if fixed else None
+            )
+
+    alerts = [
+        Alert(None),
+        Alert('2026-03-01'),
+    ]
+
+    history = updater._build_code_scanning_history(alerts)
+    assert history == [{'date': '2026-03-01', 'open': 1}]
+
+
+def test_build_code_scanning_history():
+    class Alert:
+        def __init__(self, created, dismissed=None, fixed=None):
+            self.created_at = datetime.fromisoformat(created).replace(tzinfo=timezone.utc)
+            self.dismissed_at = (
+                datetime.fromisoformat(dismissed).replace(tzinfo=timezone.utc) if dismissed else None
+            )
+            self.fixed_at = (
+                datetime.fromisoformat(fixed).replace(tzinfo=timezone.utc) if fixed else None
+            )
+
+    alerts = [
+        Alert('2026-01-01'),
+        Alert('2026-01-02'),
+        Alert('2026-01-03', dismissed='2026-01-05'),
+        Alert('2026-01-04', fixed='2026-01-06'),
+    ]
+
+    history = updater._build_code_scanning_history(alerts)
+
+    assert {'date': '2026-01-01', 'open': 1} in history
+    assert {'date': '2026-01-02', 'open': 2} in history
+    assert {'date': '2026-01-03', 'open': 3} in history
+    assert {'date': '2026-01-04', 'open': 4} in history
+    assert {'date': '2026-01-05', 'open': 3} in history
+    assert {'date': '2026-01-06', 'open': 2} in history
+    assert history == sorted(history, key=lambda x: x['date'])
+
+
+def test_build_code_scanning_history_dismissed_and_fixed_same_day():
+    class Alert:
+        def __init__(self, created, dismissed=None, fixed=None):
+            self.created_at = datetime.fromisoformat(created).replace(tzinfo=timezone.utc)
+            self.dismissed_at = (
+                datetime.fromisoformat(dismissed).replace(tzinfo=timezone.utc) if dismissed else None
+            )
+            self.fixed_at = (
+                datetime.fromisoformat(fixed).replace(tzinfo=timezone.utc) if fixed else None
+            )
+
+    alerts = [
+        Alert('2026-02-01', dismissed='2026-02-03'),
+        Alert('2026-02-02', fixed='2026-02-03'),
+    ]
+
+    history = updater._build_code_scanning_history(alerts)
+
+    assert {'date': '2026-02-01', 'open': 1} in history
+    assert {'date': '2026-02-02', 'open': 2} in history
+    assert {'date': '2026-02-03', 'open': 0} in history

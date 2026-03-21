@@ -148,7 +148,44 @@ def _get_star_history(base_dir: str, name: str) -> list:
         return []
 
 
-def _build_repo_entry(repo: dict, coverage: float, languages: dict, prs: list, rtd_repos: set) -> dict:
+def _get_code_scanning_open(base_dir: str, name: str) -> int:
+    safe = _safe_name(name)
+    path = os.path.join(base_dir, 'github', 'codeScanning', f'{safe}.json')
+    if not os.path.exists(path):
+        return 0
+    try:
+        with open(path) as f:
+            data = json.load(f)
+        return int(data.get('open', 0) or 0)
+    except Exception:
+        return 0
+
+
+def _get_code_scanning_history(base_dir: str, name: str) -> list:
+    safe = _safe_name(name)
+    path = os.path.join(base_dir, 'github', 'codeScanningHistory', f'{safe}.json')
+    if not os.path.exists(path):
+        return []
+    try:
+        with open(path) as f:
+            data = json.load(f)
+        return [
+            {'repo': name, 'date': entry['date'], 'open': int(entry['open'])}
+            for entry in data
+            if isinstance(entry, dict) and entry.get('date')
+        ]
+    except Exception:
+        return []
+
+
+def _build_repo_entry(
+        repo: dict,
+        coverage: float,
+        languages: dict,
+        prs: list,
+        rtd_repos: set,
+        code_scanning_open: int,
+) -> dict:
     name = repo['name']
     pr_count = len(prs)
     open_issues_total = repo.get('open_issues_count', 0)
@@ -169,6 +206,7 @@ def _build_repo_entry(repo: dict, coverage: float, languages: dict, prs: list, r
         'coverage': coverage,
         'language': repo.get('language'),
         'languages': languages,
+        'code_scanning_open': code_scanning_open,
         'archived': repo.get('archived', False),
         'fork': repo.get('fork', False),
         'topics': repo.get('topics', []),
@@ -199,6 +237,7 @@ def build():
     coverage_history = []
     commit_activity = []
     star_history = []
+    code_scanning_history = []
 
     for repo in raw_repos:
         if repo.get('private') or repo.get('archived'):
@@ -214,8 +253,10 @@ def build():
         prs = _get_prs(BASE_DIR, name)
         commit_activity.extend(_get_commit_activity(BASE_DIR, name))
         star_history.extend(_get_star_history(BASE_DIR, name))
+        code_scanning_open = _get_code_scanning_open(BASE_DIR, name)
+        code_scanning_history.extend(_get_code_scanning_history(BASE_DIR, name))
 
-        repos.append(_build_repo_entry(repo, coverage, languages, prs, rtd_repos))
+        repos.append(_build_repo_entry(repo, coverage, languages, prs, rtd_repos, code_scanning_open))
         prs_all.extend({'repo': name, **pr} for pr in prs)
 
     data_dir = os.path.join(TEMPLATE_DIR, 'assets', 'data')
@@ -232,6 +273,7 @@ def build():
     write_json('coverage_history.json', coverage_history)
     write_json('commit_activity.json', commit_activity)
     write_json('star_history.json', star_history)
+    write_json('code_scanning_history.json', code_scanning_history)
     write_json('metadata.json', {
         'updated_at': datetime.now(timezone.utc).isoformat(),
         'repo_count': len(repos),

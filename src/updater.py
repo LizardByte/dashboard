@@ -8,6 +8,7 @@ from threading import Thread
 
 # lib imports
 from github import Auth, Github
+from github.GithubException import GithubException
 import requests
 from tqdm import tqdm
 import unhandled_exit
@@ -320,6 +321,113 @@ def _collect_star_history(repo, initial_samples: int = 5) -> list:
     return history
 
 
+def _fetch_code_scanning_alerts(repo) -> list:
+    """
+    Fetch all code scanning alerts for a repository.
+
+    Parameters
+    ----------
+    repo
+        PyGithub Repository object.
+
+    Returns
+    -------
+    list
+        List of alert objects, or an empty list when unavailable.
+    """
+    try:
+        alerts = list(repo.get_codescan_alerts())
+        return alerts
+    except GithubException as e:
+        if e.status == 404:
+            log.warning(f'No code scanning analysis for {repo.name}, skipping code scanning alerts.')
+        return []
+
+
+def _alert_dates(alert) -> set:
+    """
+    Return the set of YYYY-MM-DD strings that are significant for an alert.
+
+    Parameters
+    ----------
+    alert :
+        Code scanning alert object.
+
+    Returns
+    -------
+    set
+        Dates on which the alert was created, dismissed, or fixed.
+    """
+    dates = set()
+    for attr in ('created_at', 'dismissed_at', 'fixed_at'):
+        dt = getattr(alert, attr, None)
+        if dt:
+            dates.add(dt.strftime('%Y-%m-%d'))
+    return dates
+
+
+def _alert_open_on(alert, date: str) -> bool:
+    """
+    Return whether an alert was open at the end of a given date.
+
+    Parameters
+    ----------
+    alert :
+        Code scanning alert object.
+    date : str
+        Date string in YYYY-MM-DD format.
+
+    Returns
+    -------
+    bool
+        True when the alert was created on or before ``date`` and had not yet
+        been dismissed or fixed by the end of ``date``.
+    """
+    created = getattr(alert, 'created_at', None)
+    if not created or created.strftime('%Y-%m-%d') > date:
+        return False
+    dismissed = getattr(alert, 'dismissed_at', None)
+    if dismissed and dismissed.strftime('%Y-%m-%d') <= date:
+        return False
+    fixed = getattr(alert, 'fixed_at', None)
+    if fixed and fixed.strftime('%Y-%m-%d') <= date:
+        return False
+    return True
+
+
+def _build_code_scanning_history(alerts: list) -> list[dict]:
+    """
+    Build a complete daily history of open code scanning alert counts.
+
+    For each date on which any alert was created, dismissed, or fixed the open
+    count is computed as the number of alerts that were created on or before
+    that date and had not yet been dismissed or fixed by the end of that date.
+
+    Parameters
+    ----------
+    alerts : list
+        List of code scanning alert objects.  Each object must expose
+        ``created_at`` (datetime) and optionally ``dismissed_at`` and
+        ``fixed_at`` (datetime or None).
+
+    Returns
+    -------
+    list
+        Sorted list of ``{date, open}`` records.
+    """
+    dates = set()
+    for alert in alerts:
+        dates |= _alert_dates(alert)
+
+    if not dates:
+        return []
+
+    return [
+        {'date': date, 'open': sum(1 for a in alerts if _alert_open_on(a, date))}
+        for date in sorted(dates)
+    ]
+
+
 def _process_github_repo(repo, headers: dict, graphql_url: str) -> None:
     """
     Collect and cache all per-repository data for a single GitHub repo.
@@ -361,6 +469,22 @@ def _process_github_repo(repo, headers: dict, graphql_url: str) -> None:
         })
     file_path = os.path.join(BASE_DIR, 'github', 'pulls', repo.name)
     helpers.write_json_files(file_path=file_path, data=pulls_data)
+
+    # open code scanning alerts and per-day history
+    alerts = _fetch_code_scanning_alerts(repo)
+    open_alert_count = sum(
+        1 for a in alerts if getattr(a, 'state', None) == 'open'
+    )
+    file_path = os.path.join(BASE_DIR, 'github', 'codeScanning', repo.name)
+    helpers.write_json_files(file_path=file_path, data={
+        'repo': repo.name,
+        'open': open_alert_count,
+        'updated_at': datetime.now(tz=timezone.utc).isoformat(),
+    })
+
+    code_scanning_history = _build_code_scanning_history(alerts)
+    file_path = os.path.join(BASE_DIR, 'github', 'codeScanningHistory', repo.name)
+    helpers.write_json_files(file_path=file_path, data=code_scanning_history)
 
     # star history (sampled to cap API calls)
     star_history = _collect_star_history(repo)

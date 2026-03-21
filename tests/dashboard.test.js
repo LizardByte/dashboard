@@ -14,6 +14,8 @@ function buildDom() {
         <div id="chart-star-history"></div>
         <div id="chart-forks"></div>
         <div id="chart-issues"></div>
+        <div id="chart-code-scanning"></div>
+        <div id="chart-code-scanning-history"></div>
         <div id="chart-prs"></div>
         <div id="table-prs"></div>
         <div id="chart-license"></div>
@@ -37,6 +39,7 @@ function sampleRepos() {
             forks: 3,
             issues: 2,
             prs: 1,
+            code_scanning_open: 4,
             license: 'MIT',
             coverage: 0,
             languages: { Python: 50 },
@@ -51,6 +54,7 @@ function sampleRepos() {
             forks: 1,
             issues: 0,
             prs: 0,
+            code_scanning_open: 0,
             license: null,
             coverage: 88,
             languages: { JavaScript: 20 },
@@ -269,6 +273,23 @@ describe('dashboard.js', () => {
         mod.renderCoverageHistory([{ repo: 'a', date: '2026-01-01', coverage: 90 }]);
     });
 
+    test('renderCodeScanningHistory branches', () => {
+        const el = document.getElementById('chart-code-scanning-history');
+        mod.renderCodeScanningHistory([]);
+        expect(el.innerHTML).toContain('No code scanning history');
+
+        mod.renderCodeScanningHistory([
+            { repo: 'c', date: '2026-01-01', open: undefined },
+            { repo: 'b', date: '2026-01-01', open: undefined },
+            { repo: 'a', date: '2026-01-01', open: 4 },
+            { repo: 'a', date: '2026-01-02', open: 2 },
+        ]);
+        expect(globalThis.Plotly.newPlot).toHaveBeenCalled();
+
+        el.remove();
+        mod.renderCodeScanningHistory([{ repo: 'a', date: '2026-01-01', open: 1 }]);
+    });
+
     test('treemap and renderLanguageCharts', () => {
         const treeA = mod.treemap({ Python: { total: 10, repos: { 'repo-a': 10 } } }, ([, info]) => info.total);
         expect(treeA.labels).toContain('Python');
@@ -284,24 +305,10 @@ describe('dashboard.js', () => {
         expect(globalThis.Plotly.newPlot).toHaveBeenCalledTimes(2);
     });
 
-    test('renderCommitActivityChart and renderDocsChart', () => {
-        mod.renderCommitActivityChart([
-            { repo: 'repo-a', week: '2026-01-01', total: 2 },
-            { repo: 'repo-a', week: '2026-01-02', total: 3 },
-            { repo: 'ignored', week: '2026-01-02', total: 3 },
-        ], [{ name: 'repo-a' }]);
-        expect(globalThis.Plotly.newPlot).toHaveBeenCalledTimes(2);
-
-        globalThis.Plotly.newPlot.mockClear();
-        mod.renderCommitActivityChart([], [{ name: 'repo-a' }]);
-        expect(globalThis.Plotly.newPlot).toHaveBeenCalledTimes(0);
-
-        mod.renderDocsChart(sampleRepos());
-        expect(globalThis.Plotly.newPlot).toHaveBeenCalledTimes(1);
-    });
-
     test('loadDashboard success and failure paths', async () => {
         const repos = sampleRepos();
+        repos[1].topics = [];
+        delete repos[1].code_scanning_open;
         const prs = [{ repo: 'repo-a', number: 1, draft: false }];
         const metadata = { updated_at: '2026-03-20T00:00:00Z' };
         const coverage = [
@@ -311,6 +318,7 @@ describe('dashboard.js', () => {
         ];
         const commits = [{ repo: 'repo-a', week: '2026-01-01', total: 1 }];
         const stars = [{ repo: 'repo-a', date: '2026-01-01', stars: 3 }];
+        const codeScanningHistory = [{ repo: 'repo-a', date: '2026-03-19', open: 4 }];
 
         globalThis.fetch.mockImplementation(async (url) => {
             if (url.endsWith('repos.json')) return { ok: true, json: async () => repos };
@@ -319,6 +327,7 @@ describe('dashboard.js', () => {
             if (url.endsWith('coverage_history.json')) return { ok: true, json: async () => coverage };
             if (url.endsWith('commit_activity.json')) return { ok: true, json: async () => commits };
             if (url.endsWith('star_history.json')) return { ok: true, json: async () => stars };
+            if (url.endsWith('code_scanning_history.json')) return { ok: true, json: async () => codeScanningHistory };
             return { ok: false, status: 404 };
         });
 
@@ -338,6 +347,7 @@ describe('dashboard.js', () => {
             if (url.endsWith('coverage_history.json')) return { ok: false, status: 500 };
             if (url.endsWith('commit_activity.json')) return { ok: true, json: async () => commits };
             if (url.endsWith('star_history.json')) return { ok: true, json: async () => stars };
+            if (url.endsWith('code_scanning_history.json')) return { ok: true, json: async () => codeScanningHistory };
             return { ok: false, status: 404 };
         });
         await mod.loadDashboard();
@@ -391,5 +401,24 @@ describe('dashboard.js', () => {
     test('renderLanguageCharts handles missing languages object', () => {
         mod.renderLanguageCharts([{ name: 'repo-z' }]);
         expect(globalThis.Plotly.newPlot).toHaveBeenCalledTimes(2);
+    });
+
+    test('renderCommitActivityChart and renderDocsChart', () => {
+        mod.renderCommitActivityChart([
+            { repo: 'repo-a', week: '2026-01-01', total: 2 },
+            { repo: 'repo-a', week: '2026-01-02', total: 3 },
+            { repo: 'ignored', week: '2026-01-02', total: 3 },
+        ], [{ name: 'repo-a' }]);
+        expect(globalThis.Plotly.newPlot).toHaveBeenCalledTimes(2);
+
+        globalThis.Plotly.newPlot.mockClear();
+        mod.renderCommitActivityChart([], [{ name: 'repo-a' }]);
+        expect(globalThis.Plotly.newPlot).toHaveBeenCalledTimes(0);
+
+        mod.renderDocsChart([
+            { name: 'repo-has', has_readthedocs: true },
+            { name: 'repo-none', has_readthedocs: false },
+        ]);
+        expect(globalThis.Plotly.newPlot).toHaveBeenCalledTimes(1);
     });
 });
