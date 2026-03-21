@@ -59,7 +59,7 @@ jobs:
 
       - name: Prepare Artifacts  # uploading artifacts will fail if not zipped due to very large quantity of files
         shell: bash
-        run: 7z a build.zip ./gh-pages/* ./gh-pages-template/*
+        run: 7z a build.zip ./gh-pages/. ./gh-pages-template/.
 
       - name: Upload artifact
         uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f  # v7.0.0
