@@ -1,2 +1,7 @@
 ---
 site-js: []  # disable crowdin for this site
+
+# Jekyll excludes dotfiles by default. Listing each data directory here forces
+# Jekyll to include all their contents, including files whose names start with '.'.
+include:
+  - ".github*"
