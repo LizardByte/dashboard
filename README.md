@@ -23,7 +23,7 @@ python -m pytest
 ### JavaScript unit tests
 
 ```bash
-npm install --ignore-scripts
+npm ci --ignore-scripts
 npm test
 ```
 
