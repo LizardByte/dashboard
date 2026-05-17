@@ -222,7 +222,7 @@ def _get_stats_with_timeout(repo, timeout=60):
     Returns
     -------
     list or None
-        Weekly commit-activity objects, or None on timeout.
+        Weekly commit-activity data, or None on timeout.
     """
     repo_full_name = f'{repo.owner.login}/{repo.name}'
     with ProcessPoolExecutor(max_workers=1) as pool:
@@ -469,8 +469,12 @@ def _process_github_repo(repo, headers: dict, graphql_url: str) -> None:
     # commit activity (last year, weekly buckets)
     commit_activity = _get_stats_with_timeout(repo)
     if commit_activity:
+        commits = [
+            week.raw_data if hasattr(week, 'raw_data') else week
+            for week in commit_activity
+        ]
         file_path = os.path.join(BASE_DIR, 'github', 'commitActivity', repo.name)
-        helpers.write_json_files(file_path=file_path, data=commit_activity)
+        helpers.write_json_files(file_path=file_path, data=commits)
 
     # open pull requests
     pulls_data = []

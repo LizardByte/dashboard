@@ -242,12 +242,16 @@ def test_fetch_stats_commit_activity_with_pygithub(monkeypatch):
         def get_repo(self, repo_full_name, lazy=False):
             assert repo_full_name == 'owner/x'
             assert lazy
-            return SimpleNamespace(get_stats_commit_activity=lambda: [FakeWeek(1, 2)])
+            week = FakeWeek(1, 2)
+            week.raw_data['days'] = [0, 1, 1, 0, 0, 0, 0]
+            return SimpleNamespace(get_stats_commit_activity=lambda: [week])
 
     monkeypatch.setattr(updater, 'Github', FakeGithub)
     monkeypatch.setattr(updater.Auth, 'Token', lambda token: token)
 
-    assert updater._fetch_stats_commit_activity_with_pygithub('owner/x', 'token') == [{'week': 1, 'total': 2}]
+    assert updater._fetch_stats_commit_activity_with_pygithub('owner/x', 'token') == [
+        {'days': [0, 1, 1, 0, 0, 0, 0], 'total': 2, 'week': 1}
+    ]
 
     class EmptyGithub(FakeGithub):
         def get_repo(self, repo_full_name, lazy=False):
@@ -370,7 +374,11 @@ def test_process_github_repo(monkeypatch, tmp_path):
         'save_image_from_url',
         lambda **kwargs: writes.append(('img', kwargs['file_path']))
     )
-    monkeypatch.setattr(updater, '_get_stats_with_timeout', lambda repo: [{'week': 1, 'total': 1}])
+    monkeypatch.setattr(
+        updater,
+        '_get_stats_with_timeout',
+        lambda repo: [{'week': 1, 'total': 1, 'days': [0, 0, 0, 0, 0, 0, 1]}],
+    )
     monkeypatch.setattr(updater, '_collect_star_history', lambda repo: [{'date': '2026-01-01', 'stars': 1}])
     monkeypatch.setattr(updater, '_fetch_code_scanning_alerts', lambda repo: [])
     monkeypatch.setattr(
@@ -387,6 +395,10 @@ def test_process_github_repo(monkeypatch, tmp_path):
     updater._process_github_repo(FakeRepo(name='demo'), {'Authorization': 'x'}, 'https://api.github.com/graphql')
 
     assert any(path.endswith('languages\\demo') or path.endswith('languages/demo') for path, _ in writes)
+    assert any(
+        data == [{'days': [0, 0, 0, 0, 0, 0, 1], 'total': 1, 'week': 1}]
+        for _, data in writes
+    )
     assert any(path.endswith('codeScanning\\demo') or path.endswith('codeScanning/demo') for path, _ in writes)
     assert any(
         path.endswith('codeScanningHistory\\demo') or path.endswith('codeScanningHistory/demo') for path, _ in writes)
