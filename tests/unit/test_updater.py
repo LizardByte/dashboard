@@ -267,26 +267,76 @@ def test_get_commit_activity(monkeypatch):
         FakeResponse(status=204),
         FakeResponse([{'week': 1, 'total': 2}], status=200),
         FakeResponse(status=500),
+        FakeResponse(status=404),
         FakeResponse(status=200, raises=requests.exceptions.JSONDecodeError('x', 'y', 0)),
     ]
     monkeypatch.setattr(updater.helpers.s, 'get', lambda url, headers, timeout: responses.pop(0))
 
     repo = FakeRepo(name='x')
-    assert updater._get_commit_activity(repo, {'Authorization': 'x'}) is None
-    assert updater._get_commit_activity(repo, {'Authorization': 'x'}) == []
-    assert updater._get_commit_activity(repo, {'Authorization': 'x'}) == [{'week': 1, 'total': 2}]
+    assert updater._get_commit_activity(repo, {'Authorization': 'x'}) == (None, 202)
+    assert updater._get_commit_activity(repo, {'Authorization': 'x'}) == (None, 204)
+    assert updater._get_commit_activity(repo, {'Authorization': 'x'}) == ([{'week': 1, 'total': 2}], 200)
 
     warnings = []
     monkeypatch.setattr(updater.log, 'warning', lambda msg: warnings.append(msg))
-    assert updater._get_commit_activity(repo, {'Authorization': 'x'}) == []
-    assert updater._get_commit_activity(repo, {'Authorization': 'x'}) == []
+    assert updater._get_commit_activity(repo, {'Authorization': 'x'}) == (None, 500)
+    assert updater._get_commit_activity(repo, {'Authorization': 'x'}) == ([], 404)
+    assert updater._get_commit_activity(repo, {'Authorization': 'x'}) == ([], 'parse_error')
 
     def raise_timeout(url, headers, timeout):
         raise requests.exceptions.Timeout('boom')
 
     monkeypatch.setattr(updater.helpers.s, 'get', raise_timeout)
-    assert updater._get_commit_activity(repo, {'Authorization': 'x'}) is None
-    assert len(warnings) == 3
+    assert updater._get_commit_activity(repo, {'Authorization': 'x'}) == (None, 'error')
+    assert len(warnings) == 4
+
+
+def test_build_commit_activity_from_commits(monkeypatch):
+    fixed_today = datetime(2026, 3, 20, tzinfo=timezone.utc)
+
+    class FixedDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return fixed_today
+
+    class FakeCommit:
+        def __init__(self, author_date, committer_date=None, parents=None):
+            self.commit = SimpleNamespace(
+                author=SimpleNamespace(date=author_date),
+                committer=SimpleNamespace(date=committer_date),
+            )
+            self.parents = parents or [object()]
+
+    class FakeCommitRepo(FakeRepo):
+        def get_commits(self, since):
+            assert since == datetime(2025, 3, 23, tzinfo=timezone.utc)
+            return [
+                FakeCommit(datetime(2026, 3, 15, tzinfo=timezone.utc)),
+                FakeCommit(datetime(2026, 3, 18)),
+                FakeCommit(None, datetime(2026, 3, 19, tzinfo=timezone.utc)),
+                FakeCommit(datetime(2026, 3, 19, tzinfo=timezone.utc), parents=[object(), object()]),
+                FakeCommit(None),
+                FakeCommit(datetime(2025, 3, 22, tzinfo=timezone.utc)),
+            ]
+
+    monkeypatch.setattr(updater, 'datetime', FixedDatetime)
+
+    activity = updater._build_commit_activity_from_commits(FakeCommitRepo(name='x'))
+    assert len(activity) == 52
+    assert activity[0] == {'days': [0, 0, 0, 0, 0, 0, 0], 'total': 0, 'week': 1742688000}
+    assert activity[-1] == {'days': [1, 0, 0, 1, 1, 0, 0], 'total': 3, 'week': 1773532800}
+
+
+def test_build_commit_activity_from_commits_warning(monkeypatch):
+    warnings = []
+    monkeypatch.setattr(updater.log, 'warning', lambda msg: warnings.append(msg))
+
+    class BrokenRepo(FakeRepo):
+        def get_commits(self, since):
+            raise GithubException(status=409, data={'message': 'empty'})
+
+    assert updater._build_commit_activity_from_commits(BrokenRepo(name='empty')) == []
+    assert warnings
 
 
 def test_write_commit_activity(monkeypatch):
@@ -316,16 +366,22 @@ def test_update_commit_activity(monkeypatch):
     def fake_get_commit_activity(repo, headers):
         calls.append(repo.name)
         if repo.name == 'ready':
-            return [{'week': 1, 'total': 2}]
-        return None
+            return [{'week': 1, 'total': 2}], 200
+        return None, 202
 
     writes = []
+    fallback = []
     sleeps = []
     warnings = []
     times = iter([0, 0, 0, 2])
 
     monkeypatch.setattr(updater, '_get_commit_activity', fake_get_commit_activity)
     monkeypatch.setattr(updater, '_write_commit_activity', lambda repo, data: writes.append((repo.name, data)))
+    monkeypatch.setattr(
+        updater,
+        '_build_commit_activity_from_commits',
+        lambda repo: fallback.append(repo.name) or [{'week': 2, 'total': 3}],
+    )
     monkeypatch.setattr(updater.time, 'monotonic', lambda: next(times))
     monkeypatch.setattr(updater.time, 'sleep', lambda seconds: sleeps.append(seconds))
     monkeypatch.setattr(updater.log, 'warning', lambda msg: warnings.append(msg))
@@ -333,7 +389,8 @@ def test_update_commit_activity(monkeypatch):
     updater._update_commit_activity(repos, {'Authorization': 'x'}, max_wait=1, poll_interval=10)
 
     assert calls == ['ready', 'pending']
-    assert writes == [('ready', [{'week': 1, 'total': 2}])]
+    assert writes == [('ready', [{'week': 1, 'total': 2}]), ('pending', [{'week': 2, 'total': 3}])]
+    assert fallback == ['pending']
     assert sleeps == [1]
     assert warnings
 

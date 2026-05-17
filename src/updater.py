@@ -3,7 +3,7 @@ import json
 import math
 import os
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from threading import Thread
 
 # lib imports
@@ -212,7 +212,7 @@ def _prime_commit_activity(repo, headers: dict) -> None:
         log.warning(f'Could not prime commit activity for {repo.name}: HTTP {response.status_code}')
 
 
-def _get_commit_activity(repo, headers: dict) -> list | None:
+def _get_commit_activity(repo, headers: dict) -> tuple[list | None, int | str]:
     """
     Fetch commit activity for a repo.
     """
@@ -221,21 +221,71 @@ def _get_commit_activity(repo, headers: dict) -> list | None:
         response = helpers.s.get(url=url, headers=headers, timeout=10)
     except requests.exceptions.RequestException as e:
         log.warning(f'Could not fetch commit activity for {repo.name}: {e}')
-        return None
+        return None, 'error'
 
-    if response.status_code == 202:
-        return None
-    if response.status_code == 204:
-        return []
+    if response.status_code in (202, 204):
+        return None, response.status_code
+    if response.status_code in (403, 429) or response.status_code >= 500:
+        log.warning(f'Could not fetch commit activity for {repo.name}: HTTP {response.status_code}')
+        return None, response.status_code
     if response.status_code != 200:
         log.warning(f'Could not fetch commit activity for {repo.name}: HTTP {response.status_code}')
-        return []
+        return [], response.status_code
 
     try:
-        return response.json() or []
+        return response.json() or [], response.status_code
     except requests.exceptions.JSONDecodeError as e:
         log.warning(f'Could not parse commit activity for {repo.name}: {e}')
+        return [], 'parse_error'
+
+
+def _build_commit_activity_from_commits(repo) -> list:
+    """
+    Build commit activity from the commits API when GitHub stats do not become ready.
+    """
+    today = datetime.now(tz=timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+    latest_week_start = today - timedelta(days=(today.weekday() + 1) % 7)
+    first_week_start = latest_week_start - timedelta(weeks=51)
+    end = latest_week_start + timedelta(days=7)
+
+    commit_activity = [
+        {
+            'days': [0, 0, 0, 0, 0, 0, 0],
+            'total': 0,
+            'week': int((first_week_start + timedelta(weeks=i)).timestamp()),
+        }
+        for i in range(52)
+    ]
+
+    try:
+        commits = repo.get_commits(since=first_week_start)
+        for commit in commits:
+            if len(getattr(commit, 'parents', [])) > 1:
+                continue
+
+            commit_data = getattr(commit, 'commit', None)
+            author = getattr(commit_data, 'author', None)
+            committer = getattr(commit_data, 'committer', None)
+            commit_date = getattr(author, 'date', None) or getattr(committer, 'date', None)
+            if commit_date is None:
+                continue
+            if commit_date.tzinfo is None:
+                commit_date = commit_date.replace(tzinfo=timezone.utc)
+            else:
+                commit_date = commit_date.astimezone(timezone.utc)
+
+            if commit_date < first_week_start or commit_date >= end:
+                continue
+
+            days_since_start = (commit_date.date() - first_week_start.date()).days
+            week_index, day_index = divmod(days_since_start, 7)
+            commit_activity[week_index]['days'][day_index] += 1
+            commit_activity[week_index]['total'] += 1
+    except GithubException as e:
+        log.warning(f'Could not build commit activity for {repo.name}: {e}')
         return []
+
+    return commit_activity
 
 
 def _write_commit_activity(repo, commit_activity: list) -> None:
@@ -261,8 +311,10 @@ def _update_commit_activity(repos: list, headers: dict, max_wait: int = 1200, po
     with tqdm(total=len(pending), desc='Updating GitHub commit activity') as progress:
         while pending and time.monotonic() < deadline:
             remaining = []
+            statuses = {}
             for repo in pending:
-                commit_activity = _get_commit_activity(repo, headers)
+                commit_activity, status = _get_commit_activity(repo, headers)
+                statuses[status] = statuses.get(status, 0) + 1
                 if commit_activity is None:
                     remaining.append(repo)
                     continue
@@ -272,15 +324,22 @@ def _update_commit_activity(repos: list, headers: dict, max_wait: int = 1200, po
 
             pending = remaining
             if pending:
+                status_summary = ', '.join(
+                    f'{status}: {count}' for status, count in sorted(statuses.items(), key=lambda item: str(item[0]))
+                )
                 progress.set_postfix_str(f'{len(pending)} pending')
-                progress.write(f'Waiting for GitHub commit activity: {len(pending)} repos pending')
+                progress.write(
+                    f'Waiting for GitHub commit activity: {len(pending)} repos pending ({status_summary})'
+                )
                 progress.refresh()
                 sleep_for = min(poll_interval, max(0, deadline - time.monotonic()))
                 if sleep_for:
                     time.sleep(sleep_for)
 
     for repo in pending:
-        log.warning(f'Timeout fetching commit activity for {repo.name}, skipping.')
+        log.warning(f'Timeout fetching commit activity stats for {repo.name}, using commits API fallback.')
+        commit_activity = _build_commit_activity_from_commits(repo)
+        _write_commit_activity(repo, commit_activity)
 
 
 def _seed_star_history(repo, total: int, initial_samples: int) -> list[dict]:
