@@ -2,7 +2,7 @@
 import json
 import math
 import os
-from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout
+from concurrent.futures import ProcessPoolExecutor, TimeoutError as FuturesTimeout
 from datetime import datetime, timezone
 from threading import Thread
 
@@ -193,6 +193,20 @@ def update_fb():
         helpers.write_json_files(file_path=file_path, data=data)
 
 
+def _fetch_stats_commit_activity_with_pygithub(repo_full_name: str, token: str) -> list | None:
+    """
+    Fetch commit activity with PyGithub.
+
+    This is intentionally a top-level function so it can run in a child process
+    and be terminated if PyGithub keeps retrying 202 responses.
+    """
+    g = Github(auth=Auth.Token(token), timeout=helpers.DEFAULT_TIMEOUT)
+    commit_activity = g.get_repo(repo_full_name, lazy=True).get_stats_commit_activity()
+    if not commit_activity:
+        return None
+    return [week.raw_data for week in commit_activity]
+
+
 def _get_stats_with_timeout(repo, timeout=60):
     """
     Fetch commit activity for a repo, capping total wait time.
@@ -210,11 +224,17 @@ def _get_stats_with_timeout(repo, timeout=60):
     list or None
         Weekly commit-activity objects, or None on timeout.
     """
-    with ThreadPoolExecutor(max_workers=1) as pool:
-        future = pool.submit(repo.get_stats_commit_activity)
+    repo_full_name = f'{repo.owner.login}/{repo.name}'
+    with ProcessPoolExecutor(max_workers=1) as pool:
+        future = pool.submit(
+            _fetch_stats_commit_activity_with_pygithub,
+            repo_full_name,
+            os.environ["GITHUB_TOKEN"],
+        )
         try:
             return future.result(timeout=timeout)
         except FuturesTimeout:
+            pool.terminate_workers()
             log.warning(f'Timeout fetching commit activity for {repo.name}, skipping.')
             return None
 
@@ -449,9 +469,8 @@ def _process_github_repo(repo, headers: dict, graphql_url: str) -> None:
     # commit activity (last year, weekly buckets)
     commit_activity = _get_stats_with_timeout(repo)
     if commit_activity:
-        commits = [week.raw_data for week in commit_activity]
         file_path = os.path.join(BASE_DIR, 'github', 'commitActivity', repo.name)
-        helpers.write_json_files(file_path=file_path, data=commits)
+        helpers.write_json_files(file_path=file_path, data=commit_activity)
 
     # open pull requests
     pulls_data = []

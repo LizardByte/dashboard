@@ -25,6 +25,10 @@ class FakeResponse:
             raise self._raises
         return self._payload
 
+    def raise_for_status(self):
+        if self.status_code >= 400:
+            raise requests.exceptions.HTTPError(self.text)
+
 
 class FakeWeek:
     def __init__(self, week, total):
@@ -229,10 +233,37 @@ def test_update_fb(monkeypatch):
     assert 'paging' not in writes[0][1]
 
 
+def test_fetch_stats_commit_activity_with_pygithub(monkeypatch):
+    class FakeGithub:
+        def __init__(self, auth, timeout):
+            self.auth = auth
+            self.timeout = timeout
+
+        def get_repo(self, repo_full_name, lazy=False):
+            assert repo_full_name == 'owner/x'
+            assert lazy
+            return SimpleNamespace(get_stats_commit_activity=lambda: [FakeWeek(1, 2)])
+
+    monkeypatch.setattr(updater, 'Github', FakeGithub)
+    monkeypatch.setattr(updater.Auth, 'Token', lambda token: token)
+
+    assert updater._fetch_stats_commit_activity_with_pygithub('owner/x', 'token') == [{'week': 1, 'total': 2}]
+
+    class EmptyGithub(FakeGithub):
+        def get_repo(self, repo_full_name, lazy=False):
+            return SimpleNamespace(get_stats_commit_activity=lambda: None)
+
+    monkeypatch.setattr(updater, 'Github', EmptyGithub)
+    assert updater._fetch_stats_commit_activity_with_pygithub('owner/x', 'token') is None
+
+
 def test_get_stats_with_timeout_success_and_timeout(monkeypatch):
+    repo = SimpleNamespace(name='x', owner=SimpleNamespace(login='owner'))
+    monkeypatch.setenv('GITHUB_TOKEN', 'token')
+
     class FutureOk:
         def result(self, timeout):
-            return [1]
+            return [{'week': 1, 'total': 2}]
 
     class FutureTimeout:
         def result(self, timeout):
@@ -248,18 +279,26 @@ def test_get_stats_with_timeout_success_and_timeout(monkeypatch):
         def __exit__(self, *args):
             return False
 
-        def submit(self, func):
+        def submit(self, func, repo_full_name, token):
+            submissions.append((func, repo_full_name, token))
             return self.future
 
-    monkeypatch.setattr(updater, 'ThreadPoolExecutor', lambda max_workers: Pool(FutureOk()))
-    repo = SimpleNamespace(name='x', get_stats_commit_activity=lambda: [1])
-    assert updater._get_stats_with_timeout(repo) == [1]
+        def terminate_workers(self):
+            terminated.append(True)
+
+    submissions = []
+    terminated = []
+    monkeypatch.setattr(updater, 'ProcessPoolExecutor', lambda max_workers: Pool(FutureOk()))
+
+    assert updater._get_stats_with_timeout(repo) == [{'week': 1, 'total': 2}]
+    assert submissions == [(updater._fetch_stats_commit_activity_with_pygithub, 'owner/x', 'token')]
 
     warnings = []
     monkeypatch.setattr(updater.log, 'warning', lambda msg: warnings.append(msg))
-    monkeypatch.setattr(updater, 'ThreadPoolExecutor', lambda max_workers: Pool(FutureTimeout()))
+    monkeypatch.setattr(updater, 'ProcessPoolExecutor', lambda max_workers: Pool(FutureTimeout()))
     assert updater._get_stats_with_timeout(repo) is None
     assert warnings
+    assert terminated == [True]
 
 
 def test_seed_star_history(monkeypatch):
@@ -331,7 +370,7 @@ def test_process_github_repo(monkeypatch, tmp_path):
         'save_image_from_url',
         lambda **kwargs: writes.append(('img', kwargs['file_path']))
     )
-    monkeypatch.setattr(updater, '_get_stats_with_timeout', lambda repo: [FakeWeek(1, 1)])
+    monkeypatch.setattr(updater, '_get_stats_with_timeout', lambda repo: [{'week': 1, 'total': 1}])
     monkeypatch.setattr(updater, '_collect_star_history', lambda repo: [{'date': '2026-01-01', 'stars': 1}])
     monkeypatch.setattr(updater, '_fetch_code_scanning_alerts', lambda repo: [])
     monkeypatch.setattr(
