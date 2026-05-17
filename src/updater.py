@@ -2,7 +2,6 @@
 import json
 import math
 import os
-from concurrent.futures import ProcessPoolExecutor, TimeoutError as FuturesTimeout
 from datetime import datetime, timezone
 from threading import Thread
 
@@ -193,50 +192,48 @@ def update_fb():
         helpers.write_json_files(file_path=file_path, data=data)
 
 
-def _fetch_stats_commit_activity_with_pygithub(repo_full_name: str, token: str) -> list | None:
+def _prime_commit_activity(repo, headers: dict) -> None:
     """
-    Fetch commit activity with PyGithub.
+    Start GitHub's async commit-activity stats job for a repo.
 
-    This is intentionally a top-level function so it can run in a child process
-    and be terminated if PyGithub keeps retrying 202 responses.
+    PyGithub waits and retries automatically on 202 responses, which is what
+    we want for the final fetch. This warm-up request intentionally does not
+    use PyGithub so all repos can be started before any one repo blocks.
     """
-    g = Github(auth=Auth.Token(token), timeout=helpers.DEFAULT_TIMEOUT)
-    commit_activity = g.get_repo(repo_full_name, lazy=True).get_stats_commit_activity()
-    if not commit_activity:
+    url = f'{repo.url}/stats/commit_activity'
+    try:
+        response = helpers.s.get(url=url, headers=headers, timeout=5)
+    except requests.exceptions.RequestException as e:
+        log.warning(f'Could not prime commit activity for {repo.name}: {e}')
+        return
+
+    if response.status_code not in (200, 202):
+        log.warning(f'Could not prime commit activity for {repo.name}: HTTP {response.status_code}')
+
+
+def _get_commit_activity(repo) -> list | None:
+    """
+    Fetch commit activity for a repo.
+    """
+    try:
+        return repo.get_stats_commit_activity()
+    except GithubException as e:
+        log.warning(f'Could not fetch commit activity for {repo.name}: {e}')
         return None
-    return [week.raw_data for week in commit_activity]
 
 
-def _get_stats_with_timeout(repo, timeout=60):
+def _write_commit_activity(repo) -> None:
     """
-    Fetch commit activity for a repo, capping total wait time.
-
-    Parameters
-    ----------
-    repo :
-        PyGithub Repository object.
-    timeout : int
-        Maximum seconds to wait before giving up (GitHub may return 202 while
-        computing stats, causing PyGithub to retry indefinitely without this guard).
-
-    Returns
-    -------
-    list or None
-        Weekly commit-activity data, or None on timeout.
+    Fetch and cache commit activity for a repo.
     """
-    repo_full_name = f'{repo.owner.login}/{repo.name}'
-    with ProcessPoolExecutor(max_workers=1) as pool:
-        future = pool.submit(
-            _fetch_stats_commit_activity_with_pygithub,
-            repo_full_name,
-            os.environ["GITHUB_TOKEN"],
-        )
-        try:
-            return future.result(timeout=timeout)
-        except FuturesTimeout:
-            pool.terminate_workers()
-            log.warning(f'Timeout fetching commit activity for {repo.name}, skipping.')
-            return None
+    commit_activity = _get_commit_activity(repo)
+    if commit_activity:
+        commits = [
+            week.raw_data if hasattr(week, 'raw_data') else week
+            for week in commit_activity
+        ]
+        file_path = os.path.join(BASE_DIR, 'github', 'commitActivity', repo.name)
+        helpers.write_json_files(file_path=file_path, data=commits)
 
 
 def _seed_star_history(repo, total: int, initial_samples: int) -> list[dict]:
@@ -466,16 +463,6 @@ def _process_github_repo(repo, headers: dict, graphql_url: str) -> None:
     file_path = os.path.join(BASE_DIR, 'github', 'languages', repo.name)
     helpers.write_json_files(file_path=file_path, data=languages)
 
-    # commit activity (last year, weekly buckets)
-    commit_activity = _get_stats_with_timeout(repo)
-    if commit_activity:
-        commits = [
-            week.raw_data if hasattr(week, 'raw_data') else week
-            for week in commit_activity
-        ]
-        file_path = os.path.join(BASE_DIR, 'github', 'commitActivity', repo.name)
-        helpers.write_json_files(file_path=file_path, data=commits)
-
     # open pull requests
     pulls_data = []
     for pr in repo.get_pulls(state='open'):
@@ -569,13 +556,25 @@ def update_github():
     }
     graphql_url = 'https://api.github.com/graphql'
 
+    active_repos = [repo for repo in repos if not repo.archived]
+
     for repo in tqdm(
-            iterable=repos,
+            iterable=active_repos,
+            desc='Priming GitHub commit activity',
+    ):
+        _prime_commit_activity(repo, headers)
+
+    for repo in tqdm(
+            iterable=active_repos,
             desc='Updating GitHub data',
     ):
-        if repo.archived:
-            continue
         _process_github_repo(repo, headers, graphql_url)
+
+    for repo in tqdm(
+            iterable=active_repos,
+            desc='Updating GitHub commit activity',
+    ):
+        _write_commit_activity(repo)
 
 
 def update_patreon():
