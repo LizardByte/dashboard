@@ -2,6 +2,7 @@
 import json
 import math
 import os
+import time
 from datetime import datetime, timezone
 from threading import Thread
 
@@ -211,22 +212,36 @@ def _prime_commit_activity(repo, headers: dict) -> None:
         log.warning(f'Could not prime commit activity for {repo.name}: HTTP {response.status_code}')
 
 
-def _get_commit_activity(repo) -> list | None:
+def _get_commit_activity(repo, headers: dict) -> list | None:
     """
     Fetch commit activity for a repo.
     """
+    url = f'{repo.url}/stats/commit_activity'
     try:
-        return repo.get_stats_commit_activity()
-    except GithubException as e:
+        response = helpers.s.get(url=url, headers=headers, timeout=10)
+    except requests.exceptions.RequestException as e:
         log.warning(f'Could not fetch commit activity for {repo.name}: {e}')
         return None
 
+    if response.status_code == 202:
+        return None
+    if response.status_code == 204:
+        return []
+    if response.status_code != 200:
+        log.warning(f'Could not fetch commit activity for {repo.name}: HTTP {response.status_code}')
+        return []
 
-def _write_commit_activity(repo) -> None:
+    try:
+        return response.json() or []
+    except requests.exceptions.JSONDecodeError as e:
+        log.warning(f'Could not parse commit activity for {repo.name}: {e}')
+        return []
+
+
+def _write_commit_activity(repo, commit_activity: list) -> None:
     """
-    Fetch and cache commit activity for a repo.
+    Cache commit activity for a repo.
     """
-    commit_activity = _get_commit_activity(repo)
     if commit_activity:
         commits = [
             week.raw_data if hasattr(week, 'raw_data') else week
@@ -234,6 +249,38 @@ def _write_commit_activity(repo) -> None:
         ]
         file_path = os.path.join(BASE_DIR, 'github', 'commitActivity', repo.name)
         helpers.write_json_files(file_path=file_path, data=commits)
+
+
+def _update_commit_activity(repos: list, headers: dict, max_wait: int = 1200, poll_interval: int = 15) -> None:
+    """
+    Poll commit activity for all repos until ready or timeout.
+    """
+    pending = list(repos)
+    deadline = time.monotonic() + max_wait
+
+    with tqdm(total=len(pending), desc='Updating GitHub commit activity') as progress:
+        while pending and time.monotonic() < deadline:
+            remaining = []
+            for repo in pending:
+                commit_activity = _get_commit_activity(repo, headers)
+                if commit_activity is None:
+                    remaining.append(repo)
+                    continue
+
+                _write_commit_activity(repo, commit_activity)
+                progress.update(1)
+
+            pending = remaining
+            if pending:
+                progress.set_postfix_str(f'{len(pending)} pending')
+                progress.write(f'Waiting for GitHub commit activity: {len(pending)} repos pending')
+                progress.refresh()
+                sleep_for = min(poll_interval, max(0, deadline - time.monotonic()))
+                if sleep_for:
+                    time.sleep(sleep_for)
+
+    for repo in pending:
+        log.warning(f'Timeout fetching commit activity for {repo.name}, skipping.')
 
 
 def _seed_star_history(repo, total: int, initial_samples: int) -> list[dict]:
@@ -570,11 +617,7 @@ def update_github():
     ):
         _process_github_repo(repo, headers, graphql_url)
 
-    for repo in tqdm(
-            iterable=active_repos,
-            desc='Updating GitHub commit activity',
-    ):
-        _write_commit_activity(repo)
+    _update_commit_activity(active_repos, headers)
 
 
 def update_patreon():

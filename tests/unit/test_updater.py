@@ -262,22 +262,31 @@ def test_prime_commit_activity(monkeypatch):
 
 
 def test_get_commit_activity(monkeypatch):
-    week = FakeWeek(1, 2)
-    repo = SimpleNamespace(name='x', get_stats_commit_activity=lambda: [week])
-    assert updater._get_commit_activity(repo) == [week]
+    responses = [
+        FakeResponse(status=202),
+        FakeResponse(status=204),
+        FakeResponse([{'week': 1, 'total': 2}], status=200),
+        FakeResponse(status=500),
+        FakeResponse(status=200, raises=requests.exceptions.JSONDecodeError('x', 'y', 0)),
+    ]
+    monkeypatch.setattr(updater.helpers.s, 'get', lambda url, headers, timeout: responses.pop(0))
 
-    repo_empty = SimpleNamespace(name='x', get_stats_commit_activity=lambda: None)
-    assert updater._get_commit_activity(repo_empty) is None
+    repo = FakeRepo(name='x')
+    assert updater._get_commit_activity(repo, {'Authorization': 'x'}) is None
+    assert updater._get_commit_activity(repo, {'Authorization': 'x'}) == []
+    assert updater._get_commit_activity(repo, {'Authorization': 'x'}) == [{'week': 1, 'total': 2}]
 
     warnings = []
     monkeypatch.setattr(updater.log, 'warning', lambda msg: warnings.append(msg))
+    assert updater._get_commit_activity(repo, {'Authorization': 'x'}) == []
+    assert updater._get_commit_activity(repo, {'Authorization': 'x'}) == []
 
-    def raise_github_exception():
-        raise GithubException(status=409, data={'message': 'empty'})
+    def raise_timeout(url, headers, timeout):
+        raise requests.exceptions.Timeout('boom')
 
-    repo_error = SimpleNamespace(name='x', get_stats_commit_activity=raise_github_exception)
-    assert updater._get_commit_activity(repo_error) is None
-    assert warnings
+    monkeypatch.setattr(updater.helpers.s, 'get', raise_timeout)
+    assert updater._get_commit_activity(repo, {'Authorization': 'x'}) is None
+    assert len(warnings) == 3
 
 
 def test_write_commit_activity(monkeypatch):
@@ -285,22 +294,48 @@ def test_write_commit_activity(monkeypatch):
 
     week = FakeWeek(1, 2)
     week.raw_data['days'] = [0, 1, 1, 0, 0, 0, 0]
-    monkeypatch.setattr(updater, '_get_commit_activity', lambda repo: [week])
-
     writes = []
     monkeypatch.setattr(updater.helpers, 'write_json_files', lambda file_path, data: writes.append((file_path, data)))
 
-    updater._write_commit_activity(FakeRepo(name='demo'))
+    updater._write_commit_activity(FakeRepo(name='demo'), [week])
 
     assert writes == [(
         os.path.join('base', 'github', 'commitActivity', 'demo'),
         [{'days': [0, 1, 1, 0, 0, 0, 0], 'total': 2, 'week': 1}],
     )]
 
-    monkeypatch.setattr(updater, '_get_commit_activity', lambda repo: None)
     writes.clear()
-    updater._write_commit_activity(FakeRepo(name='demo'))
+    updater._write_commit_activity(FakeRepo(name='demo'), [])
     assert writes == []
+
+
+def test_update_commit_activity(monkeypatch):
+    repos = [FakeRepo(name='ready'), FakeRepo(name='pending')]
+    calls = []
+
+    def fake_get_commit_activity(repo, headers):
+        calls.append(repo.name)
+        if repo.name == 'ready':
+            return [{'week': 1, 'total': 2}]
+        return None
+
+    writes = []
+    sleeps = []
+    warnings = []
+    times = iter([0, 0, 0, 2])
+
+    monkeypatch.setattr(updater, '_get_commit_activity', fake_get_commit_activity)
+    monkeypatch.setattr(updater, '_write_commit_activity', lambda repo, data: writes.append((repo.name, data)))
+    monkeypatch.setattr(updater.time, 'monotonic', lambda: next(times))
+    monkeypatch.setattr(updater.time, 'sleep', lambda seconds: sleeps.append(seconds))
+    monkeypatch.setattr(updater.log, 'warning', lambda msg: warnings.append(msg))
+
+    updater._update_commit_activity(repos, {'Authorization': 'x'}, max_wait=1, poll_interval=10)
+
+    assert calls == ['ready', 'pending']
+    assert writes == [('ready', [{'week': 1, 'total': 2}])]
+    assert sleeps == [1]
+    assert warnings
 
 
 def test_seed_star_history(monkeypatch):
@@ -447,7 +482,11 @@ def test_update_github(monkeypatch):
     processed = []
     monkeypatch.setattr(updater, '_process_github_repo', lambda repo, headers, graphql_url: processed.append(repo.name))
     commit_activity = []
-    monkeypatch.setattr(updater, '_write_commit_activity', lambda repo: commit_activity.append(repo.name))
+    monkeypatch.setattr(
+        updater,
+        '_update_commit_activity',
+        lambda repos, headers: commit_activity.extend(repo.name for repo in repos),
+    )
     monkeypatch.setattr(updater, 'BASE_DIR', 'base')
 
     updater.update_github()
