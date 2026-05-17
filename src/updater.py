@@ -2,7 +2,7 @@
 import json
 import math
 import os
-from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout
+import time
 from datetime import datetime, timezone
 from threading import Thread
 
@@ -193,7 +193,7 @@ def update_fb():
         helpers.write_json_files(file_path=file_path, data=data)
 
 
-def _get_stats_with_timeout(repo, timeout=60):
+def _get_stats_with_timeout(repo, headers: dict, timeout=60, retry_after=2):
     """
     Fetch commit activity for a repo, capping total wait time.
 
@@ -201,22 +201,41 @@ def _get_stats_with_timeout(repo, timeout=60):
     ----------
     repo :
         PyGithub Repository object.
+    headers : dict
+        HTTP headers including the GitHub authorisation token.
     timeout : int
         Maximum seconds to wait before giving up (GitHub may return 202 while
-        computing stats, causing PyGithub to retry indefinitely without this guard).
+        computing stats).
+    retry_after : int
+        Seconds to wait between 202 responses.
 
     Returns
     -------
     list or None
-        Weekly commit-activity objects, or None on timeout.
+        Weekly commit-activity data, or None on timeout.
     """
-    with ThreadPoolExecutor(max_workers=1) as pool:
-        future = pool.submit(repo.get_stats_commit_activity)
-        try:
-            return future.result(timeout=timeout)
-        except FuturesTimeout:
+    url = f'https://api.github.com/repos/{repo.owner.login}/{repo.name}/stats/commit_activity'
+    deadline = time.monotonic() + timeout
+
+    while True:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
             log.warning(f'Timeout fetching commit activity for {repo.name}, skipping.')
             return None
+
+        response = helpers.s.get(
+            url=url,
+            headers=headers,
+            timeout=min(helpers.DEFAULT_TIMEOUT, remaining),
+        )
+        if response.status_code == 202:
+            time.sleep(min(retry_after, max(0, deadline - time.monotonic())))
+            continue
+        if response.status_code == 204:
+            return None
+
+        response.raise_for_status()
+        return response.json()
 
 
 def _seed_star_history(repo, total: int, initial_samples: int) -> list[dict]:
@@ -447,11 +466,10 @@ def _process_github_repo(repo, headers: dict, graphql_url: str) -> None:
     helpers.write_json_files(file_path=file_path, data=languages)
 
     # commit activity (last year, weekly buckets)
-    commit_activity = _get_stats_with_timeout(repo)
+    commit_activity = _get_stats_with_timeout(repo, headers)
     if commit_activity:
-        commits = [week.raw_data for week in commit_activity]
         file_path = os.path.join(BASE_DIR, 'github', 'commitActivity', repo.name)
-        helpers.write_json_files(file_path=file_path, data=commits)
+        helpers.write_json_files(file_path=file_path, data=commit_activity)
 
     # open pull requests
     pulls_data = []

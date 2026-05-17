@@ -1,6 +1,5 @@
 # standard imports
 import json
-from concurrent.futures import TimeoutError as FuturesTimeout
 from datetime import datetime, timezone
 from types import SimpleNamespace
 
@@ -24,6 +23,10 @@ class FakeResponse:
         if self._raises:
             raise self._raises
         return self._payload
+
+    def raise_for_status(self):
+        if self.status_code >= 400:
+            raise requests.exceptions.HTTPError(self.text)
 
 
 class FakeWeek:
@@ -229,37 +232,35 @@ def test_update_fb(monkeypatch):
     assert 'paging' not in writes[0][1]
 
 
-def test_get_stats_with_timeout_success_and_timeout(monkeypatch):
-    class FutureOk:
-        def result(self, timeout):
-            return [1]
+def test_get_stats_with_timeout_success_retry_and_timeout(monkeypatch):
+    repo = SimpleNamespace(name='x', owner=SimpleNamespace(login='owner'))
+    headers = {'Authorization': 'token'}
+    calls = []
 
-    class FutureTimeout:
-        def result(self, timeout):
-            raise FuturesTimeout()
+    def fake_get(url, headers, timeout):
+        calls.append((url, headers, timeout))
+        if len(calls) == 1:
+            return FakeResponse(status=202)
+        return FakeResponse([{'week': 1, 'total': 2}])
 
-    class Pool:
-        def __init__(self, future):
-            self.future = future
+    sleeps = []
+    monkeypatch.setattr(updater.helpers.s, 'get', fake_get)
+    monkeypatch.setattr(updater.time, 'sleep', lambda seconds: sleeps.append(seconds))
+    monkeypatch.setattr(updater.time, 'monotonic', lambda: 0)
 
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *args):
-            return False
-
-        def submit(self, func):
-            return self.future
-
-    monkeypatch.setattr(updater, 'ThreadPoolExecutor', lambda max_workers: Pool(FutureOk()))
-    repo = SimpleNamespace(name='x', get_stats_commit_activity=lambda: [1])
-    assert updater._get_stats_with_timeout(repo) == [1]
+    assert updater._get_stats_with_timeout(repo, headers) == [{'week': 1, 'total': 2}]
+    assert calls[0][0] == 'https://api.github.com/repos/owner/x/stats/commit_activity'
+    assert calls[0][1] == headers
+    assert calls[0][2] == updater.helpers.DEFAULT_TIMEOUT
+    assert sleeps == [2]
 
     warnings = []
     monkeypatch.setattr(updater.log, 'warning', lambda msg: warnings.append(msg))
-    monkeypatch.setattr(updater, 'ThreadPoolExecutor', lambda max_workers: Pool(FutureTimeout()))
-    assert updater._get_stats_with_timeout(repo) is None
+    assert updater._get_stats_with_timeout(repo, headers, timeout=0) is None
     assert warnings
+
+    monkeypatch.setattr(updater.helpers.s, 'get', lambda url, headers, timeout: FakeResponse(status=204))
+    assert updater._get_stats_with_timeout(repo, headers) is None
 
 
 def test_seed_star_history(monkeypatch):
@@ -331,7 +332,7 @@ def test_process_github_repo(monkeypatch, tmp_path):
         'save_image_from_url',
         lambda **kwargs: writes.append(('img', kwargs['file_path']))
     )
-    monkeypatch.setattr(updater, '_get_stats_with_timeout', lambda repo: [FakeWeek(1, 1)])
+    monkeypatch.setattr(updater, '_get_stats_with_timeout', lambda repo, headers: [{'week': 1, 'total': 1}])
     monkeypatch.setattr(updater, '_collect_star_history', lambda repo: [{'date': '2026-01-01', 'stars': 1}])
     monkeypatch.setattr(updater, '_fetch_code_scanning_alerts', lambda repo: [])
     monkeypatch.setattr(
@@ -357,7 +358,7 @@ def test_process_github_repo(monkeypatch, tmp_path):
 def test_process_github_repo_error_and_avatar_skip(monkeypatch, tmp_path):
     monkeypatch.setattr(updater, 'BASE_DIR', str(tmp_path / 'gh-pages'))
     monkeypatch.setattr(updater.helpers, 'write_json_files', lambda **kwargs: None)
-    monkeypatch.setattr(updater, '_get_stats_with_timeout', lambda repo: None)
+    monkeypatch.setattr(updater, '_get_stats_with_timeout', lambda repo, headers: None)
     monkeypatch.setattr(updater, '_collect_star_history', lambda repo: [])
     monkeypatch.setattr(updater, '_fetch_code_scanning_alerts', lambda repo: [])
     monkeypatch.setattr(updater, '_build_code_scanning_history', lambda alerts: [])
