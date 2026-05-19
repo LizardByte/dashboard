@@ -351,8 +351,6 @@ def _run_github_repo_step(repo, step: str, func: callable, default=None, timeout
     any
         The callable result, or ``default`` when the step fails.
     """
-    tqdm.write(f'GitHub {repo.name}: {step}...')
-
     result_queue = Queue(maxsize=1)
 
     def runner():
@@ -366,18 +364,14 @@ def _run_github_repo_step(repo, step: str, func: callable, default=None, timeout
     thread.join(timeout=timeout)
 
     if thread.is_alive():
-        message = f'Timeout after {timeout}s while running GitHub {step} for {repo.name}, skipping.'
-        log.warning(message)
-        tqdm.write(message)
+        log.warning(f'Timeout after {timeout}s while running GitHub {step} for {repo.name}, skipping.')
         return default
 
     success, value = result_queue.get()
     if success:
         return value
 
-    message = f'Error running GitHub {step} for {repo.name}: {value}'
-    log.warning(message)
-    tqdm.write(message)
+    log.warning(f'Error running GitHub {step} for {repo.name}: {value}')
     return default
 
 
@@ -755,7 +749,10 @@ def _collect_commit_activity(repos: list, headers: dict) -> None:
 
     GitHub caches repository stats by the current default-branch SHA. Reuse
     cached files while the SHA matches, and refresh only when the SHA changes
-    or when no cached stats file exists.
+    or when no cached stats file exists. The first pass gives GitHub a chance
+    to calculate participation stats for every changed repository; the second
+    pass revisits only repositories that returned ``202`` during the first
+    request.
 
     Parameters
     ----------
@@ -764,9 +761,11 @@ def _collect_commit_activity(repos: list, headers: dict) -> None:
     headers : dict
         HTTP headers including the GitHub authorisation token.
     """
+    pending_repos = []
+
     for repo in tqdm(
             iterable=repos,
-            desc='Updating GitHub commit activity',
+            desc='Priming GitHub commit activity',
     ):
         sha = _run_github_repo_step(repo, 'default branch SHA', lambda repo=repo: _default_branch_sha(repo))
         if sha and _has_cached_commit_activity(repo) and _cached_commit_activity_sha(repo) == sha:
@@ -774,9 +773,23 @@ def _collect_commit_activity(repos: list, headers: dict) -> None:
 
         status = _fetch_commit_activity(repo, headers, sha)
         if status == COMMIT_ACTIVITY_PENDING:
-            message = f'GitHub commit activity is still being calculated for: {repo.name}'
-            log.warning(message)
-            tqdm.write(message)
+            pending_repos.append((repo, sha))
+
+    if not pending_repos:
+        return
+
+    still_pending = []
+    for repo, sha in tqdm(
+            iterable=pending_repos,
+            desc='Collecting GitHub commit activity',
+    ):
+        status = _fetch_commit_activity(repo, headers, sha)
+        if status == COMMIT_ACTIVITY_PENDING:
+            still_pending.append(repo.name)
+
+    if still_pending:
+        repo_names = ', '.join(still_pending)
+        log.warning(f'GitHub commit activity is still being calculated for: {repo_names}')
 
 
 def _process_github_repo(repo, headers: dict, graphql_url: str) -> None:

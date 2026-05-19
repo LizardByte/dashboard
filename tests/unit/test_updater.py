@@ -300,12 +300,25 @@ def test_fetch_commit_activity_errors(monkeypatch):
     assert len(warnings) == 4
 
 
+def test_run_github_repo_step_error(monkeypatch):
+    repo = FakeRepo(name='demo')
+    warnings = []
+    monkeypatch.setattr(updater.log, 'warning', lambda msg: warnings.append(msg))
+
+    def raise_error():
+        raise RuntimeError('boom')
+
+    result = updater._run_github_repo_step(repo, 'broken step', raise_error, default='fallback')
+
+    assert updater._run_github_repo_step(repo, 'normal step', lambda: 'ok') == 'ok'
+    assert result == 'fallback'
+    assert warnings == ['Error running GitHub broken step for demo: boom']
+
+
 def test_run_github_repo_step_timeout(monkeypatch):
     repo = FakeRepo(name='demo')
     warnings = []
-    messages = []
     monkeypatch.setattr(updater.log, 'warning', lambda msg: warnings.append(msg))
-    monkeypatch.setattr(updater.tqdm, 'write', lambda msg: messages.append(msg))
 
     result = updater._run_github_repo_step(
         repo,
@@ -315,10 +328,8 @@ def test_run_github_repo_step_timeout(monkeypatch):
         timeout=0.001,
     )
 
-    expected_warning = 'Timeout after 0.001s while running GitHub slow step for demo, skipping.'
     assert result == 'fallback'
-    assert warnings == [expected_warning]
-    assert expected_warning in messages
+    assert warnings == ['Timeout after 0.001s while running GitHub slow step for demo, skipping.']
 
 
 def test_commit_activity_cache_helpers(tmp_path, monkeypatch):
@@ -350,29 +361,57 @@ def test_collect_commit_activity_uses_sha_cache(monkeypatch, tmp_path):
     cached = FakeRepo('cached', sha='same')
     changed = FakeRepo('changed', sha='new')
     missing = FakeRepo('missing', sha='missing')
-    pending = FakeRepo('pending', sha='pending')
+    stuck = FakeRepo('stuck', sha='stuck')
 
     updater._write_commit_activity(cached, [{'total': 1}], 'same')
     updater._write_commit_activity(changed, [{'total': 1}], 'old')
 
     calls = []
     warnings = []
-    messages = []
+    statuses = {
+        'changed': [updater.COMMIT_ACTIVITY_READY],
+        'missing': [updater.COMMIT_ACTIVITY_PENDING, updater.COMMIT_ACTIVITY_READY],
+        'stuck': [updater.COMMIT_ACTIVITY_PENDING, updater.COMMIT_ACTIVITY_PENDING],
+    }
 
     def fake_fetch(repo, headers, sha=None):
         calls.append((repo.name, sha))
-        return updater.COMMIT_ACTIVITY_PENDING if repo.name == 'pending' else updater.COMMIT_ACTIVITY_READY
+        return statuses[repo.name].pop(0)
 
     monkeypatch.setattr(updater, '_fetch_commit_activity', fake_fetch)
     monkeypatch.setattr(updater.log, 'warning', lambda msg: warnings.append(msg))
-    monkeypatch.setattr(updater.tqdm, 'write', lambda msg: messages.append(msg))
 
-    updater._collect_commit_activity([cached, changed, missing, pending], {})
+    updater._collect_commit_activity([cached, changed, missing, stuck], {})
 
-    expected_warning = 'GitHub commit activity is still being calculated for: pending'
-    assert calls == [('changed', 'new'), ('missing', 'missing'), ('pending', 'pending')]
+    expected_warning = 'GitHub commit activity is still being calculated for: stuck'
+    assert calls == [
+        ('changed', 'new'),
+        ('missing', 'missing'),
+        ('stuck', 'stuck'),
+        ('missing', 'missing'),
+        ('stuck', 'stuck'),
+    ]
     assert warnings == [expected_warning]
-    assert expected_warning in messages
+
+
+def test_collect_commit_activity_returns_when_all_ready(monkeypatch, tmp_path):
+    monkeypatch.setattr(updater, 'BASE_DIR', str(tmp_path / 'gh-pages'))
+
+    repo = FakeRepo('ready', sha='new')
+    calls = []
+    warnings = []
+
+    def fake_fetch(repo, headers, sha=None):
+        calls.append((repo.name, sha))
+        return updater.COMMIT_ACTIVITY_READY
+
+    monkeypatch.setattr(updater, '_fetch_commit_activity', fake_fetch)
+    monkeypatch.setattr(updater.log, 'warning', lambda msg: warnings.append(msg))
+
+    updater._collect_commit_activity([repo], {})
+
+    assert calls == [('ready', 'new')]
+    assert warnings == []
 
 
 def test_seed_star_history(monkeypatch):
