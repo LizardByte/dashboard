@@ -2,6 +2,7 @@
 import json
 import math
 import os
+from queue import Queue
 from datetime import datetime, timezone
 from threading import Thread
 
@@ -20,6 +21,7 @@ from src.logger import log
 COMMIT_ACTIVITY_READY = 'ready'
 COMMIT_ACTIVITY_PENDING = 'pending'
 COMMIT_ACTIVITY_FAILED = 'failed'
+GITHUB_REPO_STEP_TIMEOUT = 90
 
 
 def update_aur(aur_repos: list):
@@ -226,6 +228,58 @@ def _write_commit_activity(repo, commit_activity: list) -> None:
     """
     file_path = os.path.join(BASE_DIR, 'github', 'commitActivity', repo.name)
     helpers.write_json_files(file_path=file_path, data=commit_activity)
+
+
+def _run_github_repo_step(repo, step: str, func: callable, default=None, timeout: int = GITHUB_REPO_STEP_TIMEOUT):
+    """
+    Run an optional per-repository GitHub step with a total timeout.
+
+    Parameters
+    ----------
+    repo :
+        PyGithub Repository object.
+    step : str
+        Human-readable step name for logs.
+    func : callable
+        Function to run.
+    default :
+        Value returned when the step errors or times out.
+    timeout : int
+        Maximum seconds to wait for the step.
+
+    Returns
+    -------
+    any
+        The callable result, or ``default`` when the step fails.
+    """
+    tqdm.write(f'GitHub {repo.name}: {step}...')
+
+    result_queue = Queue(maxsize=1)
+
+    def runner():
+        try:
+            result_queue.put((True, func()))
+        except BaseException as e:
+            result_queue.put((False, e))
+
+    thread = Thread(target=runner, daemon=True)
+    thread.start()
+    thread.join(timeout=timeout)
+
+    if thread.is_alive():
+        message = f'Timeout after {timeout}s while running GitHub {step} for {repo.name}, skipping.'
+        log.warning(message)
+        tqdm.write(message)
+        return default
+
+    success, value = result_queue.get()
+    if success:
+        return value
+
+    message = f'Error running GitHub {step} for {repo.name}: {value}'
+    log.warning(message)
+    tqdm.write(message)
+    return default
 
 
 def _fetch_commit_activity(repo, headers: dict) -> str:
@@ -491,6 +545,70 @@ def _build_code_scanning_history(alerts: list) -> list[dict]:
     ]
 
 
+def _collect_open_pulls(repo) -> list[dict]:
+    """
+    Fetch open pull request summary data for a repository.
+
+    Parameters
+    ----------
+    repo :
+        PyGithub Repository object.
+
+    Returns
+    -------
+    list
+        Pull request summary dictionaries.
+    """
+    pulls_data = []
+    for pr in repo.get_pulls(state='open'):
+        pulls_data.append({
+            'number': pr.number,
+            'title': pr.title,
+            'author': pr.user.login,
+            'labels': [label.name for label in pr.labels],
+            'assignees': [assignee.login for assignee in pr.assignees],
+            'created_at': pr.created_at.isoformat(),
+            'updated_at': pr.updated_at.isoformat(),
+            'draft': pr.draft,
+            'milestone': pr.milestone.title if pr.milestone else None,
+        })
+    return pulls_data
+
+
+def _fetch_open_graph_image_url(repo, headers: dict, graphql_url: str) -> str:
+    """
+    Fetch a repository's OpenGraph image URL from GitHub GraphQL.
+
+    Parameters
+    ----------
+    repo :
+        PyGithub Repository object.
+    headers : dict
+        HTTP headers including the GitHub authorisation token.
+    graphql_url : str
+        GitHub GraphQL endpoint URL.
+
+    Returns
+    -------
+    str
+        OpenGraph image URL.
+    """
+    query = """
+    {
+      repository(owner: "%s", name: "%s") {
+        openGraphImageUrl
+      }
+    }
+    """ % (repo.owner.login, repo.name)
+
+    response = helpers.s.post(url=graphql_url, json={'query': query}, headers=headers)
+    repo_data = response.json()
+    try:
+        return repo_data['data']['repository']['openGraphImageUrl']
+    except KeyError:
+        raise RuntimeError(f'Error: update_github: {repo_data}') from None
+
+
 def _collect_commit_activity(repos: list, headers: dict) -> None:
     """
     Trigger and collect weekly commit activity for active repositories.
@@ -542,73 +660,59 @@ def _process_github_repo(repo, headers: dict, graphql_url: str) -> None:
         GitHub GraphQL endpoint URL.
     """
     # languages
-    languages = repo.get_languages()
-    file_path = os.path.join(BASE_DIR, 'github', 'languages', repo.name)
-    helpers.write_json_files(file_path=file_path, data=languages)
+    languages = _run_github_repo_step(repo, 'languages', repo.get_languages)
+    if languages is not None:
+        file_path = os.path.join(BASE_DIR, 'github', 'languages', repo.name)
+        helpers.write_json_files(file_path=file_path, data=languages)
 
     # open pull requests
-    pulls_data = []
-    for pr in repo.get_pulls(state='open'):
-        pulls_data.append({
-            'number': pr.number,
-            'title': pr.title,
-            'author': pr.user.login,
-            'labels': [label.name for label in pr.labels],
-            'assignees': [assignee.login for assignee in pr.assignees],
-            'created_at': pr.created_at.isoformat(),
-            'updated_at': pr.updated_at.isoformat(),
-            'draft': pr.draft,
-            'milestone': pr.milestone.title if pr.milestone else None,
-        })
-    file_path = os.path.join(BASE_DIR, 'github', 'pulls', repo.name)
-    helpers.write_json_files(file_path=file_path, data=pulls_data)
+    pulls_data = _run_github_repo_step(repo, 'pull requests', lambda: _collect_open_pulls(repo))
+    if pulls_data is not None:
+        file_path = os.path.join(BASE_DIR, 'github', 'pulls', repo.name)
+        helpers.write_json_files(file_path=file_path, data=pulls_data)
 
     # open code scanning alerts and per-day history
-    alerts = _fetch_code_scanning_alerts(repo)
-    open_alert_count = sum(
-        1 for a in alerts if getattr(a, 'state', None) == 'open'
-    )
-    file_path = os.path.join(BASE_DIR, 'github', 'codeScanning', repo.name)
-    helpers.write_json_files(file_path=file_path, data={
-        'repo': repo.name,
-        'open': open_alert_count,
-        'updated_at': datetime.now(tz=timezone.utc).isoformat(),
-    })
+    alerts = _run_github_repo_step(repo, 'code scanning alerts', lambda: _fetch_code_scanning_alerts(repo))
+    if alerts is not None:
+        open_alert_count = sum(
+            1 for a in alerts if getattr(a, 'state', None) == 'open'
+        )
+        file_path = os.path.join(BASE_DIR, 'github', 'codeScanning', repo.name)
+        helpers.write_json_files(file_path=file_path, data={
+            'repo': repo.name,
+            'open': open_alert_count,
+            'updated_at': datetime.now(tz=timezone.utc).isoformat(),
+        })
 
-    code_scanning_history = _build_code_scanning_history(alerts)
-    file_path = os.path.join(BASE_DIR, 'github', 'codeScanningHistory', repo.name)
-    helpers.write_json_files(file_path=file_path, data=code_scanning_history)
+        code_scanning_history = _build_code_scanning_history(alerts)
+        file_path = os.path.join(BASE_DIR, 'github', 'codeScanningHistory', repo.name)
+        helpers.write_json_files(file_path=file_path, data=code_scanning_history)
 
     # star history (sampled to cap API calls)
-    star_history = _collect_star_history(repo)
+    star_history = _run_github_repo_step(repo, 'star history', lambda: _collect_star_history(repo))
     if star_history:
         file_path = os.path.join(BASE_DIR, 'github', 'starHistory', repo.name)
         helpers.write_json_files(file_path=file_path, data=star_history)
 
     # openGraphImages - uses GraphQL
-    query = """
-    {
-      repository(owner: "%s", name: "%s") {
-        openGraphImageUrl
-      }
-    }
-    """ % (repo.owner.login, repo.name)
-
-    response = helpers.s.post(url=graphql_url, json={'query': query}, headers=headers)
-    repo_data = response.json()
-    try:
-        image_url = repo_data['data']['repository']['openGraphImageUrl']
-    except KeyError:
-        log.error(f'Error: update_github: {repo_data}')
-        raise SystemExit('"GITHUB_TOKEN" is invalid.')
-    if 'avatars' not in image_url:
+    image_url = _run_github_repo_step(
+        repo,
+        'OpenGraph image URL',
+        lambda: _fetch_open_graph_image_url(repo, headers, graphql_url),
+    )
+    if image_url and 'avatars' not in image_url:
         file_path = os.path.join(BASE_DIR, 'github', 'openGraphImages', repo.name)
-        helpers.save_image_from_url(
-            file_path=file_path,
-            file_extension='png',
-            image_url=image_url,
-            size_x=624,
-            size_y=312,
+        _run_github_repo_step(
+            repo,
+            'OpenGraph image download',
+            lambda: helpers.save_image_from_url(
+                file_path=file_path,
+                file_extension='png',
+                image_url=image_url,
+                size_x=624,
+                size_y=312,
+            ),
+            timeout=30,
         )
 
 

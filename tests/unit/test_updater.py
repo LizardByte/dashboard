@@ -1,5 +1,6 @@
 # standard imports
 import json
+import time
 from datetime import datetime, timezone
 from types import SimpleNamespace
 
@@ -277,6 +278,26 @@ def test_fetch_commit_activity_errors(monkeypatch):
     assert len(warnings) == 4
 
 
+def test_run_github_repo_step_timeout(monkeypatch):
+    repo = FakeRepo(name='demo')
+    warnings = []
+    messages = []
+    monkeypatch.setattr(updater.log, 'warning', lambda msg: warnings.append(msg))
+    monkeypatch.setattr(updater.tqdm, 'write', lambda msg: messages.append(msg))
+
+    result = updater._run_github_repo_step(
+        repo,
+        'slow step',
+        lambda: time.sleep(0.05),
+        default='fallback',
+        timeout=0.001,
+    )
+
+    assert result == 'fallback'
+    assert warnings == ['Timeout after 0.001s while running GitHub slow step for demo, skipping.']
+    assert messages[-1] == warnings[0]
+
+
 def test_collect_commit_activity(monkeypatch):
     ready = FakeRepo('ready')
     pending = FakeRepo('pending')
@@ -401,6 +422,8 @@ def test_process_github_repo_error_and_avatar_skip(monkeypatch, tmp_path):
     monkeypatch.setattr(updater, '_collect_star_history', lambda repo: [])
     monkeypatch.setattr(updater, '_fetch_code_scanning_alerts', lambda repo: [])
     monkeypatch.setattr(updater, '_build_code_scanning_history', lambda alerts: [])
+    warnings = []
+    monkeypatch.setattr(updater.log, 'warning', lambda msg: warnings.append(msg))
 
     monkeypatch.setattr(
         updater.helpers.s,
@@ -418,8 +441,8 @@ def test_process_github_repo_error_and_avatar_skip(monkeypatch, tmp_path):
     updater._process_github_repo(FakeRepo(name='demo'), {'Authorization': 'x'}, 'https://api.github.com/graphql')
 
     monkeypatch.setattr(updater.helpers.s, 'post', lambda url, json, headers: FakeResponse({'bad': 1}))
-    with pytest.raises(SystemExit):
-        updater._process_github_repo(FakeRepo(name='demo'), {'Authorization': 'x'}, 'https://api.github.com/graphql')
+    updater._process_github_repo(FakeRepo(name='demo'), {'Authorization': 'x'}, 'https://api.github.com/graphql')
+    assert any('OpenGraph image URL' in warning for warning in warnings)
 
 
 def test_update_github(monkeypatch):
