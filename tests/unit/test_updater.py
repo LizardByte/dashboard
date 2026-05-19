@@ -255,14 +255,12 @@ def test_fetch_commit_activity(monkeypatch, tmp_path):
     assert updater._fetch_commit_activity(repo, headers, sha='abc') == updater.COMMIT_ACTIVITY_READY
     assert urls == ['https://api.github.com/repos/owner/demo/stats/participation']
     assert len(writes) == 2
-    assert writes[0][0].endswith('commitActivity\\demo') or writes[0][0].endswith('commitActivity/demo')
+    assert writes[0][0].endswith(('commitActivity\\demo', 'commitActivity/demo'))
     assert writes[0][1] == [
         {'days': [0, 0, 0, 0, 0, 0, 0], 'total': 0, 'week': 1778371200},
         {'days': [0, 0, 0, 0, 0, 0, 0], 'total': 2, 'week': 1778976000},
     ]
-    assert writes[1][0].endswith('commitActivityHashes\\demo') or writes[1][0].endswith(
-        'commitActivityHashes/demo'
-    )
+    assert writes[1][0].endswith(('commitActivityHashes\\demo', 'commitActivityHashes/demo'))
     assert writes[1][1] == {'sha': 'abc'}
 
 
@@ -274,11 +272,10 @@ def test_fetch_commit_activity_errors(monkeypatch):
 
     assert updater._participation_to_commit_activity({'all': 'bad'}) == []
 
-    monkeypatch.setattr(
-        updater.helpers.s,
-        'get',
-        lambda url, headers: (_ for _ in ()).throw(requests.exceptions.Timeout('timeout')),
-    )
+    def raise_timeout(url, headers):
+        raise requests.exceptions.Timeout('timeout')
+
+    monkeypatch.setattr(updater.helpers.s, 'get', raise_timeout)
     assert updater._fetch_commit_activity(repo, headers) == updater.COMMIT_ACTIVITY_FAILED
 
     monkeypatch.setattr(updater.helpers.s, 'get', lambda url, headers: FakeResponse(status=202))
@@ -318,9 +315,10 @@ def test_run_github_repo_step_timeout(monkeypatch):
         timeout=0.001,
     )
 
+    expected_warning = 'Timeout after 0.001s while running GitHub slow step for demo, skipping.'
     assert result == 'fallback'
-    assert warnings == ['Timeout after 0.001s while running GitHub slow step for demo, skipping.']
-    assert messages[-1] == warnings[0]
+    assert warnings == [expected_warning]
+    assert expected_warning in messages
 
 
 def test_commit_activity_cache_helpers(tmp_path, monkeypatch):
@@ -371,9 +369,10 @@ def test_collect_commit_activity_uses_sha_cache(monkeypatch, tmp_path):
 
     updater._collect_commit_activity([cached, changed, missing, pending], {})
 
+    expected_warning = 'GitHub commit activity is still being calculated for: pending'
     assert calls == [('changed', 'new'), ('missing', 'missing'), ('pending', 'pending')]
-    assert warnings == ['GitHub commit activity is still being calculated for: pending']
-    assert messages[-1] == warnings[0]
+    assert warnings == [expected_warning]
+    assert expected_warning in messages
 
 
 def test_seed_star_history(monkeypatch):

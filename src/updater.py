@@ -358,7 +358,7 @@ def _run_github_repo_step(repo, step: str, func: callable, default=None, timeout
     def runner():
         try:
             result_queue.put((True, func()))
-        except BaseException as e:
+        except Exception as e:
             result_queue.put((False, e))
 
     thread = Thread(target=runner, daemon=True)
@@ -768,7 +768,7 @@ def _collect_commit_activity(repos: list, headers: dict) -> None:
             iterable=repos,
             desc='Updating GitHub commit activity',
     ):
-        sha = _run_github_repo_step(repo, 'default branch SHA', lambda: _default_branch_sha(repo))
+        sha = _run_github_repo_step(repo, 'default branch SHA', lambda repo=repo: _default_branch_sha(repo))
         if sha and _has_cached_commit_activity(repo) and _cached_commit_activity_sha(repo) == sha:
             continue
 
