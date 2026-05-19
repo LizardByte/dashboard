@@ -5,6 +5,7 @@ import os
 from queue import Queue
 from datetime import datetime, timezone
 from threading import Thread
+import time
 
 # lib imports
 from github import Auth, Github
@@ -21,6 +22,8 @@ from src.logger import log
 COMMIT_ACTIVITY_READY = 'ready'
 COMMIT_ACTIVITY_PENDING = 'pending'
 COMMIT_ACTIVITY_FAILED = 'failed'
+COMMIT_ACTIVITY_POLL_ATTEMPTS = 6
+COMMIT_ACTIVITY_POLL_INTERVAL = 15
 GITHUB_REPO_STEP_TIMEOUT = 90
 
 
@@ -609,14 +612,19 @@ def _fetch_open_graph_image_url(repo, headers: dict, graphql_url: str) -> str:
         raise RuntimeError(f'Error: update_github: {repo_data}') from None
 
 
-def _collect_commit_activity(repos: list, headers: dict) -> None:
+def _collect_commit_activity(
+        repos: list,
+        headers: dict,
+        poll_attempts: int = COMMIT_ACTIVITY_POLL_ATTEMPTS,
+        poll_interval: int = COMMIT_ACTIVITY_POLL_INTERVAL,
+) -> None:
     """
     Trigger and collect weekly commit activity for active repositories.
 
     GitHub may return ``202 Accepted`` for the stats endpoint while it starts
     its server-side calculation. The first pass gives every repository a chance
-    to start that work. The second pass only revisits repositories that were
-    still pending after the first request.
+    to start that work. Later passes only revisit repositories that were still
+    pending after the previous request.
 
     Parameters
     ----------
@@ -624,6 +632,10 @@ def _collect_commit_activity(repos: list, headers: dict) -> None:
         Active PyGithub Repository objects.
     headers : dict
         HTTP headers including the GitHub authorisation token.
+    poll_attempts : int
+        Maximum number of follow-up passes for pending repositories.
+    poll_interval : int
+        Seconds to wait between follow-up passes.
     """
     pending_repos = []
     for repo in tqdm(
@@ -634,16 +646,35 @@ def _collect_commit_activity(repos: list, headers: dict) -> None:
         if status == COMMIT_ACTIVITY_PENDING:
             pending_repos.append(repo)
 
-    if not pending_repos:
-        return
+    for attempt in range(1, poll_attempts + 1):
+        if not pending_repos:
+            return
 
-    for repo in tqdm(
-            iterable=pending_repos,
-            desc='Collecting GitHub commit activity',
-    ):
-        status = _fetch_commit_activity(repo, headers)
-        if status == COMMIT_ACTIVITY_PENDING:
-            log.warning(f'Commit activity for {repo.name} is still being calculated by GitHub, skipping.')
+        if poll_interval > 0:
+            message = (
+                f'Waiting {poll_interval}s for GitHub commit activity calculation '
+                f'({len(pending_repos)} repos pending, attempt {attempt}/{poll_attempts}).'
+            )
+            log.info(message)
+            tqdm.write(message)
+            time.sleep(poll_interval)
+
+        next_pending = []
+        for repo in tqdm(
+                iterable=pending_repos,
+                desc=f'Collecting GitHub commit activity ({attempt}/{poll_attempts})',
+        ):
+            status = _fetch_commit_activity(repo, headers)
+            if status == COMMIT_ACTIVITY_PENDING:
+                next_pending.append(repo)
+
+        pending_repos = next_pending
+
+    if pending_repos:
+        repo_names = ', '.join(repo.name for repo in pending_repos)
+        message = f'GitHub commit activity is still being calculated for: {repo_names}'
+        log.warning(message)
+        tqdm.write(message)
 
 
 def _process_github_repo(repo, headers: dict, graphql_url: str) -> None:

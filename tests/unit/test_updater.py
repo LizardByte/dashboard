@@ -318,11 +318,41 @@ def test_collect_commit_activity(monkeypatch):
     monkeypatch.setattr(updater, '_fetch_commit_activity', fake_fetch)
     monkeypatch.setattr(updater.log, 'warning', lambda msg: warnings.append(msg))
 
-    updater._collect_commit_activity([ready], {})
-    updater._collect_commit_activity([ready, pending, stuck], {})
+    updater._collect_commit_activity([ready], {}, poll_attempts=1, poll_interval=0)
+    updater._collect_commit_activity([ready, pending, stuck], {}, poll_attempts=1, poll_interval=0)
 
     assert calls == ['ready', 'ready', 'pending', 'stuck', 'pending', 'stuck']
-    assert warnings == ['Commit activity for stuck is still being calculated by GitHub, skipping.']
+    assert warnings == ['GitHub commit activity is still being calculated for: stuck']
+
+
+def test_collect_commit_activity_polls_until_ready(monkeypatch):
+    repo = FakeRepo('repo')
+
+    statuses = [
+        updater.COMMIT_ACTIVITY_PENDING,
+        updater.COMMIT_ACTIVITY_PENDING,
+        updater.COMMIT_ACTIVITY_READY,
+    ]
+    calls = []
+    sleeps = []
+    infos = []
+    messages = []
+
+    def fake_fetch(repo, headers):
+        calls.append(repo.name)
+        return statuses.pop(0)
+
+    monkeypatch.setattr(updater, '_fetch_commit_activity', fake_fetch)
+    monkeypatch.setattr(updater.time, 'sleep', lambda seconds: sleeps.append(seconds))
+    monkeypatch.setattr(updater.log, 'info', lambda msg: infos.append(msg))
+    monkeypatch.setattr(updater.tqdm, 'write', lambda msg: messages.append(msg))
+
+    updater._collect_commit_activity([repo], {}, poll_attempts=2, poll_interval=1)
+
+    assert calls == ['repo', 'repo', 'repo']
+    assert sleeps == [1, 1]
+    assert len(infos) == 2
+    assert messages == infos
 
 
 def test_seed_star_history(monkeypatch):
@@ -477,6 +507,7 @@ def test_update_github(monkeypatch):
         '_fetch_commit_activity',
         lambda repo, headers: commit_calls.append(repo.name) or commit_statuses[repo.name].pop(0),
     )
+    monkeypatch.setattr(updater.time, 'sleep', lambda seconds: None)
     processed = []
     monkeypatch.setattr(updater, '_process_github_repo', lambda repo, headers, graphql_url: processed.append(repo.name))
     monkeypatch.setattr(updater, 'BASE_DIR', 'base')
