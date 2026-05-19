@@ -2,8 +2,8 @@
 import json
 import math
 import os
-from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout
-from datetime import datetime, timezone
+from queue import Queue
+from datetime import datetime, timedelta, timezone
 from threading import Thread
 
 # lib imports
@@ -17,6 +17,11 @@ import unhandled_exit
 from src import BASE_DIR
 from src import helpers
 from src.logger import log
+
+COMMIT_ACTIVITY_READY = 'ready'
+COMMIT_ACTIVITY_PENDING = 'pending'
+COMMIT_ACTIVITY_FAILED = 'failed'
+GITHUB_REPO_STEP_TIMEOUT = 90
 
 
 def update_aur(aur_repos: list):
@@ -193,30 +198,276 @@ def update_fb():
         helpers.write_json_files(file_path=file_path, data=data)
 
 
-def _get_stats_with_timeout(repo, timeout=60):
+def _commit_participation_url(repo) -> str:
     """
-    Fetch commit activity for a repo, capping total wait time.
+    Build the GitHub REST URL for a repository's weekly commit participation.
 
     Parameters
     ----------
     repo :
         PyGithub Repository object.
-    timeout : int
-        Maximum seconds to wait before giving up (GitHub may return 202 while
-        computing stats, causing PyGithub to retry indefinitely without this guard).
 
     Returns
     -------
-    list or None
-        Weekly commit-activity objects, or None on timeout.
+    str
+        GitHub REST API URL.
     """
-    with ThreadPoolExecutor(max_workers=1) as pool:
-        future = pool.submit(repo.get_stats_commit_activity)
+    return f'https://api.github.com/repos/{repo.owner.login}/{repo.name}/stats/participation'
+
+
+def _commit_activity_cache_path(repo) -> str:
+    """
+    Return the cache path for a repository's weekly commit activity.
+
+    Parameters
+    ----------
+    repo :
+        PyGithub Repository object.
+
+    Returns
+    -------
+    str
+        File path without the ``.json`` extension.
+    """
+    return os.path.join(BASE_DIR, 'github', 'commitActivity', repo.name)
+
+
+def _commit_activity_hash_cache_path(repo) -> str:
+    """
+    Return the cache path for a repository's commit-activity source SHA.
+
+    Parameters
+    ----------
+    repo :
+        PyGithub Repository object.
+
+    Returns
+    -------
+    str
+        File path without the ``.json`` extension.
+    """
+    return os.path.join(BASE_DIR, 'github', 'commitActivityHashes', repo.name)
+
+
+def _has_cached_commit_activity(repo) -> bool:
+    """
+    Return whether cached weekly commit activity exists for a repository.
+
+    Parameters
+    ----------
+    repo :
+        PyGithub Repository object.
+
+    Returns
+    -------
+    bool
+        True when a valid cached stats file exists.
+    """
+    try:
+        with open(f'{_commit_activity_cache_path(repo)}.json') as f:
+            return isinstance(json.load(f), list)
+    except Exception:
+        return False
+
+
+def _cached_commit_activity_sha(repo) -> str | None:
+    """
+    Return the cached default-branch SHA for a repository's commit activity.
+
+    Parameters
+    ----------
+    repo :
+        PyGithub Repository object.
+
+    Returns
+    -------
+    str or None
+        Cached SHA when available.
+    """
+    try:
+        with open(f'{_commit_activity_hash_cache_path(repo)}.json') as f:
+            data = json.load(f)
+    except Exception:
+        return None
+
+    sha = data.get('sha') if isinstance(data, dict) else None
+    return sha if isinstance(sha, str) else None
+
+
+def _default_branch_sha(repo) -> str:
+    """
+    Return the current default-branch commit SHA for a repository.
+
+    Parameters
+    ----------
+    repo :
+        PyGithub Repository object.
+
+    Returns
+    -------
+    str
+        Default-branch commit SHA.
+    """
+    return repo.get_branch(repo.default_branch).commit.sha
+
+
+def _write_commit_activity(repo, commit_activity: list, sha: str | None = None) -> None:
+    """
+    Write weekly commit activity for a repository.
+
+    Parameters
+    ----------
+    repo :
+        PyGithub Repository object.
+    commit_activity : list
+        Weekly commit activity records from GitHub's REST API.
+    sha : str or None
+        Default-branch commit SHA that produced the stats.
+    """
+    helpers.write_json_files(file_path=_commit_activity_cache_path(repo), data=commit_activity)
+    if sha:
+        helpers.write_json_files(file_path=_commit_activity_hash_cache_path(repo), data={'sha': sha})
+
+
+def _run_github_repo_step(repo, step: str, func: callable, default=None, timeout: int = GITHUB_REPO_STEP_TIMEOUT):
+    """
+    Run an optional per-repository GitHub step with a total timeout.
+
+    Parameters
+    ----------
+    repo :
+        PyGithub Repository object.
+    step : str
+        Human-readable step name for logs.
+    func : callable
+        Function to run.
+    default :
+        Value returned when the step errors or times out.
+    timeout : int
+        Maximum seconds to wait for the step.
+
+    Returns
+    -------
+    any
+        The callable result, or ``default`` when the step fails.
+    """
+    result_queue = Queue(maxsize=1)
+
+    def runner():
         try:
-            return future.result(timeout=timeout)
-        except FuturesTimeout:
-            log.warning(f'Timeout fetching commit activity for {repo.name}, skipping.')
-            return None
+            result_queue.put((True, func()))
+        except Exception as e:
+            result_queue.put((False, e))
+
+    thread = Thread(target=runner, daemon=True)
+    thread.start()
+    thread.join(timeout=timeout)
+
+    if thread.is_alive():
+        log.warning(f'Timeout after {timeout}s while running GitHub {step} for {repo.name}, skipping.')
+        return default
+
+    success, value = result_queue.get()
+    if success:
+        return value
+
+    log.warning(f'Error running GitHub {step} for {repo.name}: {value}')
+    return default
+
+
+def _participation_to_commit_activity(participation: dict) -> list[dict]:
+    """
+    Convert GitHub participation stats into commit-activity-shaped records.
+
+    Parameters
+    ----------
+    participation : dict
+        Response body from ``/stats/participation``.
+
+    Returns
+    -------
+    list
+        Weekly commit activity records with ``week`` and ``total`` keys.
+    """
+    totals = participation.get('all', [])
+    if not isinstance(totals, list):
+        return []
+
+    today = datetime.now(tz=timezone.utc).date()
+    days_since_sunday = (today.weekday() + 1) % 7
+    newest_week = today - timedelta(days=days_since_sunday)
+
+    return [
+        {
+            'days': [0, 0, 0, 0, 0, 0, 0],
+            'total': total,
+            'week': int(
+                datetime.combine(
+                    newest_week - timedelta(weeks=len(totals) - index - 1),
+                    datetime.min.time(),
+                    tzinfo=timezone.utc,
+                ).timestamp()
+            ),
+        }
+        for index, total in enumerate(totals)
+        if isinstance(total, int)
+    ]
+
+
+def _fetch_commit_activity(repo, headers: dict, sha: str | None = None) -> str:
+    """
+    Fetch weekly total commit counts for a repository.
+
+    GitHub's ``/stats/commit_activity`` endpoint can return ``202`` for a long
+    time in CI. The dashboard only charts weekly totals, so use
+    ``/stats/participation`` and keep writing the existing ``commitActivity``
+    cache files for builder compatibility.
+
+    Parameters
+    ----------
+    repo :
+        PyGithub Repository object.
+    headers : dict
+        HTTP headers including the GitHub authorisation token.
+    sha : str or None
+        Default-branch commit SHA that produced the stats.
+
+    Returns
+    -------
+    str
+        One of ``COMMIT_ACTIVITY_READY``, ``COMMIT_ACTIVITY_PENDING``, or
+        ``COMMIT_ACTIVITY_FAILED``.
+    """
+    # Use participation instead of commit_activity because the dashboard only
+    # needs weekly totals, and commit_activity can remain at 202 in CI.
+    url = _commit_participation_url(repo)
+    try:
+        response = helpers.s.get(url=url, headers=headers)
+    except requests.exceptions.RequestException as e:
+        log.warning(f'Error fetching commit activity for {repo.name}: {e}')
+        return COMMIT_ACTIVITY_FAILED
+
+    if response.status_code == 202:
+        return COMMIT_ACTIVITY_PENDING
+
+    try:
+        data = response.json()
+    except Exception as e:
+        log.warning(f'Error parsing commit activity for {repo.name}: {e}')
+        return COMMIT_ACTIVITY_FAILED
+
+    if response.status_code != 200:
+        message = data.get('message', response.text) if isinstance(data, dict) else response.text
+        log.warning(f'Error fetching commit activity for {repo.name}: {message}')
+        return COMMIT_ACTIVITY_FAILED
+
+    commit_activity = _participation_to_commit_activity(data)
+    if not commit_activity:
+        log.warning(f'Unexpected commit activity response for {repo.name}: {data}')
+        return COMMIT_ACTIVITY_FAILED
+
+    _write_commit_activity(repo, commit_activity, sha)
+    return COMMIT_ACTIVITY_READY
 
 
 def _seed_star_history(repo, total: int, initial_samples: int) -> list[dict]:
@@ -428,6 +679,119 @@ def _build_code_scanning_history(alerts: list) -> list[dict]:
     ]
 
 
+def _collect_open_pulls(repo) -> list[dict]:
+    """
+    Fetch open pull request summary data for a repository.
+
+    Parameters
+    ----------
+    repo :
+        PyGithub Repository object.
+
+    Returns
+    -------
+    list
+        Pull request summary dictionaries.
+    """
+    pulls_data = []
+    for pr in repo.get_pulls(state='open'):
+        pulls_data.append({
+            'number': pr.number,
+            'title': pr.title,
+            'author': pr.user.login,
+            'labels': [label.name for label in pr.labels],
+            'assignees': [assignee.login for assignee in pr.assignees],
+            'created_at': pr.created_at.isoformat(),
+            'updated_at': pr.updated_at.isoformat(),
+            'draft': pr.draft,
+            'milestone': pr.milestone.title if pr.milestone else None,
+        })
+    return pulls_data
+
+
+def _fetch_open_graph_image_url(repo, headers: dict, graphql_url: str) -> str:
+    """
+    Fetch a repository's OpenGraph image URL from GitHub GraphQL.
+
+    Parameters
+    ----------
+    repo :
+        PyGithub Repository object.
+    headers : dict
+        HTTP headers including the GitHub authorisation token.
+    graphql_url : str
+        GitHub GraphQL endpoint URL.
+
+    Returns
+    -------
+    str
+        OpenGraph image URL.
+    """
+    query = """
+    {
+      repository(owner: "%s", name: "%s") {
+        openGraphImageUrl
+      }
+    }
+    """ % (repo.owner.login, repo.name)
+
+    response = helpers.s.post(url=graphql_url, json={'query': query}, headers=headers)
+    repo_data = response.json()
+    try:
+        return repo_data['data']['repository']['openGraphImageUrl']
+    except KeyError:
+        raise RuntimeError(f'Error: update_github: {repo_data}') from None
+
+
+def _collect_commit_activity(repos: list, headers: dict) -> None:
+    """
+    Collect weekly commit totals for active repositories.
+
+    GitHub caches repository stats by the current default-branch SHA. Reuse
+    cached files while the SHA matches, and refresh only when the SHA changes
+    or when no cached stats file exists. The first pass gives GitHub a chance
+    to calculate participation stats for every changed repository; the second
+    pass revisits only repositories that returned ``202`` during the first
+    request.
+
+    Parameters
+    ----------
+    repos : list
+        Active PyGithub Repository objects.
+    headers : dict
+        HTTP headers including the GitHub authorisation token.
+    """
+    pending_repos = []
+
+    for repo in tqdm(
+            iterable=repos,
+            desc='Priming GitHub commit activity',
+    ):
+        sha = _run_github_repo_step(repo, 'default branch SHA', lambda repo=repo: _default_branch_sha(repo))
+        if sha and _has_cached_commit_activity(repo) and _cached_commit_activity_sha(repo) == sha:
+            continue
+
+        status = _fetch_commit_activity(repo, headers, sha)
+        if status == COMMIT_ACTIVITY_PENDING:
+            pending_repos.append((repo, sha))
+
+    if not pending_repos:
+        return
+
+    still_pending = []
+    for repo, sha in tqdm(
+            iterable=pending_repos,
+            desc='Collecting GitHub commit activity',
+    ):
+        status = _fetch_commit_activity(repo, headers, sha)
+        if status == COMMIT_ACTIVITY_PENDING:
+            still_pending.append(repo.name)
+
+    if still_pending:
+        repo_names = ', '.join(still_pending)
+        log.warning(f'GitHub commit activity is still being calculated for: {repo_names}')
+
+
 def _process_github_repo(repo, headers: dict, graphql_url: str) -> None:
     """
     Collect and cache all per-repository data for a single GitHub repo.
@@ -442,80 +806,59 @@ def _process_github_repo(repo, headers: dict, graphql_url: str) -> None:
         GitHub GraphQL endpoint URL.
     """
     # languages
-    languages = repo.get_languages()
-    file_path = os.path.join(BASE_DIR, 'github', 'languages', repo.name)
-    helpers.write_json_files(file_path=file_path, data=languages)
-
-    # commit activity (last year, weekly buckets)
-    commit_activity = _get_stats_with_timeout(repo)
-    if commit_activity:
-        commits = [week.raw_data for week in commit_activity]
-        file_path = os.path.join(BASE_DIR, 'github', 'commitActivity', repo.name)
-        helpers.write_json_files(file_path=file_path, data=commits)
+    languages = _run_github_repo_step(repo, 'languages', repo.get_languages)
+    if languages is not None:
+        file_path = os.path.join(BASE_DIR, 'github', 'languages', repo.name)
+        helpers.write_json_files(file_path=file_path, data=languages)
 
     # open pull requests
-    pulls_data = []
-    for pr in repo.get_pulls(state='open'):
-        pulls_data.append({
-            'number': pr.number,
-            'title': pr.title,
-            'author': pr.user.login,
-            'labels': [label.name for label in pr.labels],
-            'assignees': [assignee.login for assignee in pr.assignees],
-            'created_at': pr.created_at.isoformat(),
-            'updated_at': pr.updated_at.isoformat(),
-            'draft': pr.draft,
-            'milestone': pr.milestone.title if pr.milestone else None,
-        })
-    file_path = os.path.join(BASE_DIR, 'github', 'pulls', repo.name)
-    helpers.write_json_files(file_path=file_path, data=pulls_data)
+    pulls_data = _run_github_repo_step(repo, 'pull requests', lambda: _collect_open_pulls(repo))
+    if pulls_data is not None:
+        file_path = os.path.join(BASE_DIR, 'github', 'pulls', repo.name)
+        helpers.write_json_files(file_path=file_path, data=pulls_data)
 
     # open code scanning alerts and per-day history
-    alerts = _fetch_code_scanning_alerts(repo)
-    open_alert_count = sum(
-        1 for a in alerts if getattr(a, 'state', None) == 'open'
-    )
-    file_path = os.path.join(BASE_DIR, 'github', 'codeScanning', repo.name)
-    helpers.write_json_files(file_path=file_path, data={
-        'repo': repo.name,
-        'open': open_alert_count,
-        'updated_at': datetime.now(tz=timezone.utc).isoformat(),
-    })
+    alerts = _run_github_repo_step(repo, 'code scanning alerts', lambda: _fetch_code_scanning_alerts(repo))
+    if alerts is not None:
+        open_alert_count = sum(
+            1 for a in alerts if getattr(a, 'state', None) == 'open'
+        )
+        file_path = os.path.join(BASE_DIR, 'github', 'codeScanning', repo.name)
+        helpers.write_json_files(file_path=file_path, data={
+            'repo': repo.name,
+            'open': open_alert_count,
+            'updated_at': datetime.now(tz=timezone.utc).isoformat(),
+        })
 
-    code_scanning_history = _build_code_scanning_history(alerts)
-    file_path = os.path.join(BASE_DIR, 'github', 'codeScanningHistory', repo.name)
-    helpers.write_json_files(file_path=file_path, data=code_scanning_history)
+        code_scanning_history = _build_code_scanning_history(alerts)
+        file_path = os.path.join(BASE_DIR, 'github', 'codeScanningHistory', repo.name)
+        helpers.write_json_files(file_path=file_path, data=code_scanning_history)
 
     # star history (sampled to cap API calls)
-    star_history = _collect_star_history(repo)
+    star_history = _run_github_repo_step(repo, 'star history', lambda: _collect_star_history(repo))
     if star_history:
         file_path = os.path.join(BASE_DIR, 'github', 'starHistory', repo.name)
         helpers.write_json_files(file_path=file_path, data=star_history)
 
     # openGraphImages - uses GraphQL
-    query = """
-    {
-      repository(owner: "%s", name: "%s") {
-        openGraphImageUrl
-      }
-    }
-    """ % (repo.owner.login, repo.name)
-
-    response = helpers.s.post(url=graphql_url, json={'query': query}, headers=headers)
-    repo_data = response.json()
-    try:
-        image_url = repo_data['data']['repository']['openGraphImageUrl']
-    except KeyError:
-        log.error(f'Error: update_github: {repo_data}')
-        raise SystemExit('"GITHUB_TOKEN" is invalid.')
-    if 'avatars' not in image_url:
+    image_url = _run_github_repo_step(
+        repo,
+        'OpenGraph image URL',
+        lambda: _fetch_open_graph_image_url(repo, headers, graphql_url),
+    )
+    if image_url and 'avatars' not in image_url:
         file_path = os.path.join(BASE_DIR, 'github', 'openGraphImages', repo.name)
-        helpers.save_image_from_url(
-            file_path=file_path,
-            file_extension='png',
-            image_url=image_url,
-            size_x=624,
-            size_y=312,
+        _run_github_repo_step(
+            repo,
+            'OpenGraph image download',
+            lambda: helpers.save_image_from_url(
+                file_path=file_path,
+                file_extension='png',
+                image_url=image_url,
+                size_x=624,
+                size_y=312,
+            ),
+            timeout=30,
         )
 
 
@@ -542,16 +885,19 @@ def update_github():
 
     # GraphQL query still uses direct requests
     headers = {
+        'Accept': 'application/vnd.github+json',
         'Authorization': f'token {os.environ["GITHUB_TOKEN"]}',
+        'X-GitHub-Api-Version': '2022-11-28',
     }
     graphql_url = 'https://api.github.com/graphql'
 
+    active_repos = [repo for repo in repos if not repo.archived]
+    _collect_commit_activity(active_repos, headers)
+
     for repo in tqdm(
-            iterable=repos,
+            iterable=active_repos,
             desc='Updating GitHub data',
     ):
-        if repo.archived:
-            continue
         _process_github_repo(repo, headers, graphql_url)
 
 
