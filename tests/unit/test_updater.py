@@ -1,6 +1,5 @@
 # standard imports
 import json
-from concurrent.futures import TimeoutError as FuturesTimeout
 from datetime import datetime, timezone
 from types import SimpleNamespace
 
@@ -24,11 +23,6 @@ class FakeResponse:
         if self._raises:
             raise self._raises
         return self._payload
-
-
-class FakeWeek:
-    def __init__(self, week, total):
-        self.raw_data = {'week': week, 'total': total}
 
 
 class FakePull:
@@ -70,9 +64,6 @@ class FakeRepo:
 
     def get_languages(self):
         return {'Python': 100}
-
-    def get_stats_commit_activity(self):
-        return [FakeWeek(1, 1)]
 
     def get_pulls(self, state='open'):
         assert state == 'open'
@@ -229,37 +220,88 @@ def test_update_fb(monkeypatch):
     assert 'paging' not in writes[0][1]
 
 
-def test_get_stats_with_timeout_success_and_timeout(monkeypatch):
-    class FutureOk:
-        def result(self, timeout):
-            return [1]
+def test_fetch_commit_activity(monkeypatch, tmp_path):
+    monkeypatch.setattr(updater, 'BASE_DIR', str(tmp_path / 'gh-pages'))
 
-    class FutureTimeout:
-        def result(self, timeout):
-            raise FuturesTimeout()
+    writes = []
+    monkeypatch.setattr(updater.helpers, 'write_json_files', lambda file_path, data: writes.append((file_path, data)))
 
-    class Pool:
-        def __init__(self, future):
-            self.future = future
+    responses = [
+        FakeResponse([{'week': 1, 'total': 2}], status=200),
+        FakeResponse(status=202),
+        FakeResponse(status=204),
+    ]
+    monkeypatch.setattr(updater.helpers.s, 'get', lambda url, headers: responses.pop(0))
 
-        def __enter__(self):
-            return self
+    repo = FakeRepo(name='demo')
+    headers = {'Authorization': 'token'}
 
-        def __exit__(self, *args):
-            return False
+    assert updater._fetch_commit_activity(repo, headers) == updater.COMMIT_ACTIVITY_READY
+    assert updater._fetch_commit_activity(repo, headers) == updater.COMMIT_ACTIVITY_PENDING
+    assert updater._fetch_commit_activity(repo, headers) == updater.COMMIT_ACTIVITY_READY
+    assert len(writes) == 2
+    assert writes[0][1] == [{'week': 1, 'total': 2}]
+    assert writes[1][1] == []
+    assert '/repos/owner/demo/stats/commit_activity' in updater._commit_activity_url(repo)
 
-        def submit(self, func):
-            return self.future
 
-    monkeypatch.setattr(updater, 'ThreadPoolExecutor', lambda max_workers: Pool(FutureOk()))
-    repo = SimpleNamespace(name='x', get_stats_commit_activity=lambda: [1])
-    assert updater._get_stats_with_timeout(repo) == [1]
-
+def test_fetch_commit_activity_errors(monkeypatch):
+    repo = FakeRepo(name='demo')
+    headers = {'Authorization': 'token'}
     warnings = []
     monkeypatch.setattr(updater.log, 'warning', lambda msg: warnings.append(msg))
-    monkeypatch.setattr(updater, 'ThreadPoolExecutor', lambda max_workers: Pool(FutureTimeout()))
-    assert updater._get_stats_with_timeout(repo) is None
-    assert warnings
+
+    monkeypatch.setattr(
+        updater.helpers.s,
+        'get',
+        lambda url, headers: (_ for _ in ()).throw(requests.exceptions.Timeout('timeout')),
+    )
+    assert updater._fetch_commit_activity(repo, headers) == updater.COMMIT_ACTIVITY_FAILED
+
+    monkeypatch.setattr(
+        updater.helpers.s,
+        'get',
+        lambda url, headers: FakeResponse(status=500, raises=ValueError('bad')),
+    )
+    assert updater._fetch_commit_activity(repo, headers) == updater.COMMIT_ACTIVITY_FAILED
+
+    monkeypatch.setattr(
+        updater.helpers.s,
+        'get',
+        lambda url, headers: FakeResponse({'message': 'rate limit'}, status=403),
+    )
+    assert updater._fetch_commit_activity(repo, headers) == updater.COMMIT_ACTIVITY_FAILED
+
+    monkeypatch.setattr(updater.helpers.s, 'get', lambda url, headers: FakeResponse({'bad': 1}, status=200))
+    assert updater._fetch_commit_activity(repo, headers) == updater.COMMIT_ACTIVITY_FAILED
+    assert len(warnings) == 4
+
+
+def test_collect_commit_activity(monkeypatch):
+    ready = FakeRepo('ready')
+    pending = FakeRepo('pending')
+    stuck = FakeRepo('stuck')
+
+    statuses = {
+        'ready': [updater.COMMIT_ACTIVITY_READY, updater.COMMIT_ACTIVITY_READY],
+        'pending': [updater.COMMIT_ACTIVITY_PENDING, updater.COMMIT_ACTIVITY_READY],
+        'stuck': [updater.COMMIT_ACTIVITY_PENDING, updater.COMMIT_ACTIVITY_PENDING],
+    }
+    calls = []
+
+    def fake_fetch(repo, headers):
+        calls.append(repo.name)
+        return statuses[repo.name].pop(0)
+
+    warnings = []
+    monkeypatch.setattr(updater, '_fetch_commit_activity', fake_fetch)
+    monkeypatch.setattr(updater.log, 'warning', lambda msg: warnings.append(msg))
+
+    updater._collect_commit_activity([ready], {})
+    updater._collect_commit_activity([ready, pending, stuck], {})
+
+    assert calls == ['ready', 'ready', 'pending', 'stuck', 'pending', 'stuck']
+    assert warnings == ['Commit activity for stuck is still being calculated by GitHub, skipping.']
 
 
 def test_seed_star_history(monkeypatch):
@@ -331,7 +373,6 @@ def test_process_github_repo(monkeypatch, tmp_path):
         'save_image_from_url',
         lambda **kwargs: writes.append(('img', kwargs['file_path']))
     )
-    monkeypatch.setattr(updater, '_get_stats_with_timeout', lambda repo: [FakeWeek(1, 1)])
     monkeypatch.setattr(updater, '_collect_star_history', lambda repo: [{'date': '2026-01-01', 'stars': 1}])
     monkeypatch.setattr(updater, '_fetch_code_scanning_alerts', lambda repo: [])
     monkeypatch.setattr(
@@ -357,7 +398,6 @@ def test_process_github_repo(monkeypatch, tmp_path):
 def test_process_github_repo_error_and_avatar_skip(monkeypatch, tmp_path):
     monkeypatch.setattr(updater, 'BASE_DIR', str(tmp_path / 'gh-pages'))
     monkeypatch.setattr(updater.helpers, 'write_json_files', lambda **kwargs: None)
-    monkeypatch.setattr(updater, '_get_stats_with_timeout', lambda repo: None)
     monkeypatch.setattr(updater, '_collect_star_history', lambda repo: [])
     monkeypatch.setattr(updater, '_fetch_code_scanning_alerts', lambda repo: [])
     monkeypatch.setattr(updater, '_build_code_scanning_history', lambda alerts: [])
@@ -387,9 +427,10 @@ def test_update_github(monkeypatch):
     monkeypatch.setenv('GITHUB_REPOSITORY_OWNER', 'owner')
 
     repo_active = FakeRepo('active', archived=False)
+    repo_pending = FakeRepo('pending', archived=False)
     repo_archived = FakeRepo('archived', archived=True)
 
-    owner = SimpleNamespace(get_repos=lambda: [repo_active, repo_archived])
+    owner = SimpleNamespace(get_repos=lambda: [repo_active, repo_pending, repo_archived])
 
     class FakeGithub:
         def __init__(self, auth, timeout):
@@ -403,6 +444,16 @@ def test_update_github(monkeypatch):
 
     writes = []
     monkeypatch.setattr(updater.helpers, 'write_json_files', lambda file_path, data: writes.append((file_path, data)))
+    commit_calls = []
+    commit_statuses = {
+        'active': [updater.COMMIT_ACTIVITY_READY],
+        'pending': [updater.COMMIT_ACTIVITY_PENDING, updater.COMMIT_ACTIVITY_READY],
+    }
+    monkeypatch.setattr(
+        updater,
+        '_fetch_commit_activity',
+        lambda repo, headers: commit_calls.append(repo.name) or commit_statuses[repo.name].pop(0),
+    )
     processed = []
     monkeypatch.setattr(updater, '_process_github_repo', lambda repo, headers, graphql_url: processed.append(repo.name))
     monkeypatch.setattr(updater, 'BASE_DIR', 'base')
@@ -410,7 +461,8 @@ def test_update_github(monkeypatch):
     updater.update_github()
 
     assert any(path.endswith('github\\repos') or path.endswith('github/repos') for path, _ in writes)
-    assert processed == ['active']
+    assert commit_calls == ['active', 'pending', 'pending']
+    assert processed == ['active', 'pending']
 
 
 def test_update_patreon(monkeypatch):

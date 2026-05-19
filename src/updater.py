@@ -2,7 +2,6 @@
 import json
 import math
 import os
-from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout
 from datetime import datetime, timezone
 from threading import Thread
 
@@ -17,6 +16,10 @@ import unhandled_exit
 from src import BASE_DIR
 from src import helpers
 from src.logger import log
+
+COMMIT_ACTIVITY_READY = 'ready'
+COMMIT_ACTIVITY_PENDING = 'pending'
+COMMIT_ACTIVITY_FAILED = 'failed'
 
 
 def update_aur(aur_repos: list):
@@ -193,30 +196,90 @@ def update_fb():
         helpers.write_json_files(file_path=file_path, data=data)
 
 
-def _get_stats_with_timeout(repo, timeout=60):
+def _commit_activity_url(repo) -> str:
     """
-    Fetch commit activity for a repo, capping total wait time.
+    Build the GitHub REST URL for a repository's weekly commit activity.
 
     Parameters
     ----------
     repo :
         PyGithub Repository object.
-    timeout : int
-        Maximum seconds to wait before giving up (GitHub may return 202 while
-        computing stats, causing PyGithub to retry indefinitely without this guard).
 
     Returns
     -------
-    list or None
-        Weekly commit-activity objects, or None on timeout.
+    str
+        GitHub REST API URL.
     """
-    with ThreadPoolExecutor(max_workers=1) as pool:
-        future = pool.submit(repo.get_stats_commit_activity)
-        try:
-            return future.result(timeout=timeout)
-        except FuturesTimeout:
-            log.warning(f'Timeout fetching commit activity for {repo.name}, skipping.')
-            return None
+    return f'https://api.github.com/repos/{repo.owner.login}/{repo.name}/stats/commit_activity'
+
+
+def _write_commit_activity(repo, commit_activity: list) -> None:
+    """
+    Write weekly commit activity for a repository.
+
+    Parameters
+    ----------
+    repo :
+        PyGithub Repository object.
+    commit_activity : list
+        Weekly commit activity records from GitHub's REST API.
+    """
+    file_path = os.path.join(BASE_DIR, 'github', 'commitActivity', repo.name)
+    helpers.write_json_files(file_path=file_path, data=commit_activity)
+
+
+def _fetch_commit_activity(repo, headers: dict) -> str:
+    """
+    Fetch or trigger weekly commit activity for a repository.
+
+    GitHub returns ``202 Accepted`` while it computes repository statistics.
+    This function treats that response as a successful trigger instead of
+    waiting in-place.
+
+    Parameters
+    ----------
+    repo :
+        PyGithub Repository object.
+    headers : dict
+        HTTP headers including the GitHub authorisation token.
+
+    Returns
+    -------
+    str
+        One of ``COMMIT_ACTIVITY_READY``, ``COMMIT_ACTIVITY_PENDING``, or
+        ``COMMIT_ACTIVITY_FAILED``.
+    """
+    url = _commit_activity_url(repo)
+    try:
+        response = helpers.s.get(url=url, headers=headers)
+    except requests.exceptions.RequestException as e:
+        log.warning(f'Error fetching commit activity for {repo.name}: {e}')
+        return COMMIT_ACTIVITY_FAILED
+
+    if response.status_code == 202:
+        return COMMIT_ACTIVITY_PENDING
+
+    if response.status_code == 204:
+        _write_commit_activity(repo, [])
+        return COMMIT_ACTIVITY_READY
+
+    try:
+        data = response.json()
+    except Exception as e:
+        log.warning(f'Error parsing commit activity for {repo.name}: {e}')
+        return COMMIT_ACTIVITY_FAILED
+
+    if response.status_code != 200:
+        message = data.get('message', response.text) if isinstance(data, dict) else response.text
+        log.warning(f'Error fetching commit activity for {repo.name}: {message}')
+        return COMMIT_ACTIVITY_FAILED
+
+    if not isinstance(data, list):
+        log.warning(f'Unexpected commit activity response for {repo.name}: {data}')
+        return COMMIT_ACTIVITY_FAILED
+
+    _write_commit_activity(repo, data)
+    return COMMIT_ACTIVITY_READY
 
 
 def _seed_star_history(repo, total: int, initial_samples: int) -> list[dict]:
@@ -428,6 +491,43 @@ def _build_code_scanning_history(alerts: list) -> list[dict]:
     ]
 
 
+def _collect_commit_activity(repos: list, headers: dict) -> None:
+    """
+    Trigger and collect weekly commit activity for active repositories.
+
+    GitHub may return ``202 Accepted`` for the stats endpoint while it starts
+    its server-side calculation. The first pass gives every repository a chance
+    to start that work. The second pass only revisits repositories that were
+    still pending after the first request.
+
+    Parameters
+    ----------
+    repos : list
+        Active PyGithub Repository objects.
+    headers : dict
+        HTTP headers including the GitHub authorisation token.
+    """
+    pending_repos = []
+    for repo in tqdm(
+            iterable=repos,
+            desc='Triggering GitHub commit activity',
+    ):
+        status = _fetch_commit_activity(repo, headers)
+        if status == COMMIT_ACTIVITY_PENDING:
+            pending_repos.append(repo)
+
+    if not pending_repos:
+        return
+
+    for repo in tqdm(
+            iterable=pending_repos,
+            desc='Collecting GitHub commit activity',
+    ):
+        status = _fetch_commit_activity(repo, headers)
+        if status == COMMIT_ACTIVITY_PENDING:
+            log.warning(f'Commit activity for {repo.name} is still being calculated by GitHub, skipping.')
+
+
 def _process_github_repo(repo, headers: dict, graphql_url: str) -> None:
     """
     Collect and cache all per-repository data for a single GitHub repo.
@@ -445,13 +545,6 @@ def _process_github_repo(repo, headers: dict, graphql_url: str) -> None:
     languages = repo.get_languages()
     file_path = os.path.join(BASE_DIR, 'github', 'languages', repo.name)
     helpers.write_json_files(file_path=file_path, data=languages)
-
-    # commit activity (last year, weekly buckets)
-    commit_activity = _get_stats_with_timeout(repo)
-    if commit_activity:
-        commits = [week.raw_data for week in commit_activity]
-        file_path = os.path.join(BASE_DIR, 'github', 'commitActivity', repo.name)
-        helpers.write_json_files(file_path=file_path, data=commits)
 
     # open pull requests
     pulls_data = []
@@ -542,16 +635,19 @@ def update_github():
 
     # GraphQL query still uses direct requests
     headers = {
+        'Accept': 'application/vnd.github+json',
         'Authorization': f'token {os.environ["GITHUB_TOKEN"]}',
+        'X-GitHub-Api-Version': '2022-11-28',
     }
     graphql_url = 'https://api.github.com/graphql'
 
+    active_repos = [repo for repo in repos if not repo.archived]
+    _collect_commit_activity(active_repos, headers)
+
     for repo in tqdm(
-            iterable=repos,
+            iterable=active_repos,
             desc='Updating GitHub data',
     ):
-        if repo.archived:
-            continue
         _process_github_repo(repo, headers, graphql_url)
 
 
