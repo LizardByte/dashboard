@@ -56,15 +56,21 @@ class FakeStargazers:
 
 
 class FakeRepo:
-    def __init__(self, name='repo1', archived=False, stars=4):
+    def __init__(self, name='repo1', archived=False, stars=4, sha=None):
         self.name = name
         self.archived = archived
         self.owner = SimpleNamespace(login='owner')
         self.stargazers_count = stars
+        self.default_branch = 'master'
+        self.sha = sha or f'sha-{name}'
         self.raw_data = {'name': name, 'archived': archived}
 
     def get_languages(self):
         return {'Python': 100}
+
+    def get_branch(self, branch):
+        assert branch == self.default_branch
+        return SimpleNamespace(commit=SimpleNamespace(sha=self.sha))
 
     def get_pulls(self, state='open'):
         assert state == 'open'
@@ -224,26 +230,40 @@ def test_update_fb(monkeypatch):
 def test_fetch_commit_activity(monkeypatch, tmp_path):
     monkeypatch.setattr(updater, 'BASE_DIR', str(tmp_path / 'gh-pages'))
 
+    fixed_today = datetime(2026, 5, 19, tzinfo=timezone.utc)
+
+    class FixedDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return fixed_today
+
+    monkeypatch.setattr(updater, 'datetime', FixedDatetime)
+
     writes = []
     monkeypatch.setattr(updater.helpers, 'write_json_files', lambda file_path, data: writes.append((file_path, data)))
 
-    responses = [
-        FakeResponse([{'week': 1, 'total': 2}], status=200),
-        FakeResponse(status=202),
-        FakeResponse(status=204),
-    ]
-    monkeypatch.setattr(updater.helpers.s, 'get', lambda url, headers: responses.pop(0))
+    urls = []
+    monkeypatch.setattr(
+        updater.helpers.s,
+        'get',
+        lambda url, headers: urls.append(url) or FakeResponse({'all': [0, 2]}, status=200),
+    )
 
     repo = FakeRepo(name='demo')
     headers = {'Authorization': 'token'}
 
-    assert updater._fetch_commit_activity(repo, headers) == updater.COMMIT_ACTIVITY_READY
-    assert updater._fetch_commit_activity(repo, headers) == updater.COMMIT_ACTIVITY_PENDING
-    assert updater._fetch_commit_activity(repo, headers) == updater.COMMIT_ACTIVITY_READY
+    assert updater._fetch_commit_activity(repo, headers, sha='abc') == updater.COMMIT_ACTIVITY_READY
+    assert urls == ['https://api.github.com/repos/owner/demo/stats/participation']
     assert len(writes) == 2
-    assert writes[0][1] == [{'week': 1, 'total': 2}]
-    assert writes[1][1] == []
-    assert '/repos/owner/demo/stats/commit_activity' in updater._commit_activity_url(repo)
+    assert writes[0][0].endswith('commitActivity\\demo') or writes[0][0].endswith('commitActivity/demo')
+    assert writes[0][1] == [
+        {'days': [0, 0, 0, 0, 0, 0, 0], 'total': 0, 'week': 1778371200},
+        {'days': [0, 0, 0, 0, 0, 0, 0], 'total': 2, 'week': 1778976000},
+    ]
+    assert writes[1][0].endswith('commitActivityHashes\\demo') or writes[1][0].endswith(
+        'commitActivityHashes/demo'
+    )
+    assert writes[1][1] == {'sha': 'abc'}
 
 
 def test_fetch_commit_activity_errors(monkeypatch):
@@ -252,12 +272,17 @@ def test_fetch_commit_activity_errors(monkeypatch):
     warnings = []
     monkeypatch.setattr(updater.log, 'warning', lambda msg: warnings.append(msg))
 
+    assert updater._participation_to_commit_activity({'all': 'bad'}) == []
+
     monkeypatch.setattr(
         updater.helpers.s,
         'get',
         lambda url, headers: (_ for _ in ()).throw(requests.exceptions.Timeout('timeout')),
     )
     assert updater._fetch_commit_activity(repo, headers) == updater.COMMIT_ACTIVITY_FAILED
+
+    monkeypatch.setattr(updater.helpers.s, 'get', lambda url, headers: FakeResponse(status=202))
+    assert updater._fetch_commit_activity(repo, headers) == updater.COMMIT_ACTIVITY_PENDING
 
     monkeypatch.setattr(
         updater.helpers.s,
@@ -273,7 +298,7 @@ def test_fetch_commit_activity_errors(monkeypatch):
     )
     assert updater._fetch_commit_activity(repo, headers) == updater.COMMIT_ACTIVITY_FAILED
 
-    monkeypatch.setattr(updater.helpers.s, 'get', lambda url, headers: FakeResponse({'bad': 1}, status=200))
+    monkeypatch.setattr(updater.helpers.s, 'get', lambda url, headers: FakeResponse({'all': []}, status=200))
     assert updater._fetch_commit_activity(repo, headers) == updater.COMMIT_ACTIVITY_FAILED
     assert len(warnings) == 4
 
@@ -298,61 +323,57 @@ def test_run_github_repo_step_timeout(monkeypatch):
     assert messages[-1] == warnings[0]
 
 
-def test_collect_commit_activity(monkeypatch):
-    ready = FakeRepo('ready')
-    pending = FakeRepo('pending')
-    stuck = FakeRepo('stuck')
+def test_commit_activity_cache_helpers(tmp_path, monkeypatch):
+    monkeypatch.setattr(updater, 'BASE_DIR', str(tmp_path / 'gh-pages'))
+    repo = FakeRepo(name='demo')
 
-    statuses = {
-        'ready': [updater.COMMIT_ACTIVITY_READY, updater.COMMIT_ACTIVITY_READY],
-        'pending': [updater.COMMIT_ACTIVITY_PENDING, updater.COMMIT_ACTIVITY_READY],
-        'stuck': [updater.COMMIT_ACTIVITY_PENDING, updater.COMMIT_ACTIVITY_PENDING],
-    }
+    assert not updater._has_cached_commit_activity(repo)
+    assert updater._cached_commit_activity_sha(repo) is None
+
+    stats_path = tmp_path / 'gh-pages' / 'github' / 'commitActivity' / 'demo.json'
+    hash_path = tmp_path / 'gh-pages' / 'github' / 'commitActivityHashes' / 'demo.json'
+    stats_path.parent.mkdir(parents=True)
+    hash_path.parent.mkdir(parents=True)
+
+    stats_path.write_text('{bad', encoding='utf-8')
+    hash_path.write_text('[]', encoding='utf-8')
+    assert not updater._has_cached_commit_activity(repo)
+    assert updater._cached_commit_activity_sha(repo) is None
+
+    stats_path.write_text('[{"total": 1}]', encoding='utf-8')
+    hash_path.write_text('{"sha": "abc"}', encoding='utf-8')
+    assert updater._has_cached_commit_activity(repo)
+    assert updater._cached_commit_activity_sha(repo) == 'abc'
+
+
+def test_collect_commit_activity_uses_sha_cache(monkeypatch, tmp_path):
+    monkeypatch.setattr(updater, 'BASE_DIR', str(tmp_path / 'gh-pages'))
+
+    cached = FakeRepo('cached', sha='same')
+    changed = FakeRepo('changed', sha='new')
+    missing = FakeRepo('missing', sha='missing')
+    pending = FakeRepo('pending', sha='pending')
+
+    updater._write_commit_activity(cached, [{'total': 1}], 'same')
+    updater._write_commit_activity(changed, [{'total': 1}], 'old')
+
     calls = []
-
-    def fake_fetch(repo, headers):
-        calls.append(repo.name)
-        return statuses[repo.name].pop(0)
-
     warnings = []
-    monkeypatch.setattr(updater, '_fetch_commit_activity', fake_fetch)
-    monkeypatch.setattr(updater.log, 'warning', lambda msg: warnings.append(msg))
-
-    updater._collect_commit_activity([ready], {}, poll_attempts=1, poll_interval=0)
-    updater._collect_commit_activity([ready, pending, stuck], {}, poll_attempts=1, poll_interval=0)
-
-    assert calls == ['ready', 'ready', 'pending', 'stuck', 'pending', 'stuck']
-    assert warnings == ['GitHub commit activity is still being calculated for: stuck']
-
-
-def test_collect_commit_activity_polls_until_ready(monkeypatch):
-    repo = FakeRepo('repo')
-
-    statuses = [
-        updater.COMMIT_ACTIVITY_PENDING,
-        updater.COMMIT_ACTIVITY_PENDING,
-        updater.COMMIT_ACTIVITY_READY,
-    ]
-    calls = []
-    sleeps = []
-    infos = []
     messages = []
 
-    def fake_fetch(repo, headers):
-        calls.append(repo.name)
-        return statuses.pop(0)
+    def fake_fetch(repo, headers, sha=None):
+        calls.append((repo.name, sha))
+        return updater.COMMIT_ACTIVITY_PENDING if repo.name == 'pending' else updater.COMMIT_ACTIVITY_READY
 
     monkeypatch.setattr(updater, '_fetch_commit_activity', fake_fetch)
-    monkeypatch.setattr(updater.time, 'sleep', lambda seconds: sleeps.append(seconds))
-    monkeypatch.setattr(updater.log, 'info', lambda msg: infos.append(msg))
+    monkeypatch.setattr(updater.log, 'warning', lambda msg: warnings.append(msg))
     monkeypatch.setattr(updater.tqdm, 'write', lambda msg: messages.append(msg))
 
-    updater._collect_commit_activity([repo], {}, poll_attempts=2, poll_interval=1)
+    updater._collect_commit_activity([cached, changed, missing, pending], {})
 
-    assert calls == ['repo', 'repo', 'repo']
-    assert sleeps == [1, 1]
-    assert len(infos) == 2
-    assert messages == infos
+    assert calls == [('changed', 'new'), ('missing', 'missing'), ('pending', 'pending')]
+    assert warnings == ['GitHub commit activity is still being calculated for: pending']
+    assert messages[-1] == warnings[0]
 
 
 def test_seed_star_history(monkeypatch):
@@ -497,17 +518,12 @@ def test_update_github(monkeypatch):
 
     writes = []
     monkeypatch.setattr(updater.helpers, 'write_json_files', lambda file_path, data: writes.append((file_path, data)))
-    commit_calls = []
-    commit_statuses = {
-        'active': [updater.COMMIT_ACTIVITY_READY],
-        'pending': [updater.COMMIT_ACTIVITY_PENDING, updater.COMMIT_ACTIVITY_READY],
-    }
+    commit_repos = []
     monkeypatch.setattr(
         updater,
-        '_fetch_commit_activity',
-        lambda repo, headers: commit_calls.append(repo.name) or commit_statuses[repo.name].pop(0),
+        '_collect_commit_activity',
+        lambda repos, headers: commit_repos.extend(repo.name for repo in repos),
     )
-    monkeypatch.setattr(updater.time, 'sleep', lambda seconds: None)
     processed = []
     monkeypatch.setattr(updater, '_process_github_repo', lambda repo, headers, graphql_url: processed.append(repo.name))
     monkeypatch.setattr(updater, 'BASE_DIR', 'base')
@@ -515,7 +531,7 @@ def test_update_github(monkeypatch):
     updater.update_github()
 
     assert any(path.endswith('github\\repos') or path.endswith('github/repos') for path, _ in writes)
-    assert commit_calls == ['active', 'pending', 'pending']
+    assert commit_repos == ['active', 'pending']
     assert processed == ['active', 'pending']
 
 

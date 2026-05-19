@@ -3,9 +3,8 @@ import json
 import math
 import os
 from queue import Queue
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from threading import Thread
-import time
 
 # lib imports
 from github import Auth, Github
@@ -22,8 +21,6 @@ from src.logger import log
 COMMIT_ACTIVITY_READY = 'ready'
 COMMIT_ACTIVITY_PENDING = 'pending'
 COMMIT_ACTIVITY_FAILED = 'failed'
-COMMIT_ACTIVITY_POLL_ATTEMPTS = 6
-COMMIT_ACTIVITY_POLL_INTERVAL = 15
 GITHUB_REPO_STEP_TIMEOUT = 90
 
 
@@ -201,9 +198,9 @@ def update_fb():
         helpers.write_json_files(file_path=file_path, data=data)
 
 
-def _commit_activity_url(repo) -> str:
+def _commit_participation_url(repo) -> str:
     """
-    Build the GitHub REST URL for a repository's weekly commit activity.
+    Build the GitHub REST URL for a repository's weekly commit participation.
 
     Parameters
     ----------
@@ -215,10 +212,106 @@ def _commit_activity_url(repo) -> str:
     str
         GitHub REST API URL.
     """
-    return f'https://api.github.com/repos/{repo.owner.login}/{repo.name}/stats/commit_activity'
+    return f'https://api.github.com/repos/{repo.owner.login}/{repo.name}/stats/participation'
 
 
-def _write_commit_activity(repo, commit_activity: list) -> None:
+def _commit_activity_cache_path(repo) -> str:
+    """
+    Return the cache path for a repository's weekly commit activity.
+
+    Parameters
+    ----------
+    repo :
+        PyGithub Repository object.
+
+    Returns
+    -------
+    str
+        File path without the ``.json`` extension.
+    """
+    return os.path.join(BASE_DIR, 'github', 'commitActivity', repo.name)
+
+
+def _commit_activity_hash_cache_path(repo) -> str:
+    """
+    Return the cache path for a repository's commit-activity source SHA.
+
+    Parameters
+    ----------
+    repo :
+        PyGithub Repository object.
+
+    Returns
+    -------
+    str
+        File path without the ``.json`` extension.
+    """
+    return os.path.join(BASE_DIR, 'github', 'commitActivityHashes', repo.name)
+
+
+def _has_cached_commit_activity(repo) -> bool:
+    """
+    Return whether cached weekly commit activity exists for a repository.
+
+    Parameters
+    ----------
+    repo :
+        PyGithub Repository object.
+
+    Returns
+    -------
+    bool
+        True when a valid cached stats file exists.
+    """
+    try:
+        with open(f'{_commit_activity_cache_path(repo)}.json') as f:
+            return isinstance(json.load(f), list)
+    except Exception:
+        return False
+
+
+def _cached_commit_activity_sha(repo) -> str | None:
+    """
+    Return the cached default-branch SHA for a repository's commit activity.
+
+    Parameters
+    ----------
+    repo :
+        PyGithub Repository object.
+
+    Returns
+    -------
+    str or None
+        Cached SHA when available.
+    """
+    try:
+        with open(f'{_commit_activity_hash_cache_path(repo)}.json') as f:
+            data = json.load(f)
+    except Exception:
+        return None
+
+    sha = data.get('sha') if isinstance(data, dict) else None
+    return sha if isinstance(sha, str) else None
+
+
+def _default_branch_sha(repo) -> str:
+    """
+    Return the current default-branch commit SHA for a repository.
+
+    Parameters
+    ----------
+    repo :
+        PyGithub Repository object.
+
+    Returns
+    -------
+    str
+        Default-branch commit SHA.
+    """
+    return repo.get_branch(repo.default_branch).commit.sha
+
+
+def _write_commit_activity(repo, commit_activity: list, sha: str | None = None) -> None:
     """
     Write weekly commit activity for a repository.
 
@@ -228,9 +321,12 @@ def _write_commit_activity(repo, commit_activity: list) -> None:
         PyGithub Repository object.
     commit_activity : list
         Weekly commit activity records from GitHub's REST API.
+    sha : str or None
+        Default-branch commit SHA that produced the stats.
     """
-    file_path = os.path.join(BASE_DIR, 'github', 'commitActivity', repo.name)
-    helpers.write_json_files(file_path=file_path, data=commit_activity)
+    helpers.write_json_files(file_path=_commit_activity_cache_path(repo), data=commit_activity)
+    if sha:
+        helpers.write_json_files(file_path=_commit_activity_hash_cache_path(repo), data={'sha': sha})
 
 
 def _run_github_repo_step(repo, step: str, func: callable, default=None, timeout: int = GITHUB_REPO_STEP_TIMEOUT):
@@ -285,13 +381,53 @@ def _run_github_repo_step(repo, step: str, func: callable, default=None, timeout
     return default
 
 
-def _fetch_commit_activity(repo, headers: dict) -> str:
+def _participation_to_commit_activity(participation: dict) -> list[dict]:
     """
-    Fetch or trigger weekly commit activity for a repository.
+    Convert GitHub participation stats into commit-activity-shaped records.
 
-    GitHub returns ``202 Accepted`` while it computes repository statistics.
-    This function treats that response as a successful trigger instead of
-    waiting in-place.
+    Parameters
+    ----------
+    participation : dict
+        Response body from ``/stats/participation``.
+
+    Returns
+    -------
+    list
+        Weekly commit activity records with ``week`` and ``total`` keys.
+    """
+    totals = participation.get('all', [])
+    if not isinstance(totals, list):
+        return []
+
+    today = datetime.now(tz=timezone.utc).date()
+    days_since_sunday = (today.weekday() + 1) % 7
+    newest_week = today - timedelta(days=days_since_sunday)
+
+    return [
+        {
+            'days': [0, 0, 0, 0, 0, 0, 0],
+            'total': total,
+            'week': int(
+                datetime.combine(
+                    newest_week - timedelta(weeks=len(totals) - index - 1),
+                    datetime.min.time(),
+                    tzinfo=timezone.utc,
+                ).timestamp()
+            ),
+        }
+        for index, total in enumerate(totals)
+        if isinstance(total, int)
+    ]
+
+
+def _fetch_commit_activity(repo, headers: dict, sha: str | None = None) -> str:
+    """
+    Fetch weekly total commit counts for a repository.
+
+    GitHub's ``/stats/commit_activity`` endpoint can return ``202`` for a long
+    time in CI. The dashboard only charts weekly totals, so use
+    ``/stats/participation`` and keep writing the existing ``commitActivity``
+    cache files for builder compatibility.
 
     Parameters
     ----------
@@ -299,6 +435,8 @@ def _fetch_commit_activity(repo, headers: dict) -> str:
         PyGithub Repository object.
     headers : dict
         HTTP headers including the GitHub authorisation token.
+    sha : str or None
+        Default-branch commit SHA that produced the stats.
 
     Returns
     -------
@@ -306,7 +444,9 @@ def _fetch_commit_activity(repo, headers: dict) -> str:
         One of ``COMMIT_ACTIVITY_READY``, ``COMMIT_ACTIVITY_PENDING``, or
         ``COMMIT_ACTIVITY_FAILED``.
     """
-    url = _commit_activity_url(repo)
+    # Use participation instead of commit_activity because the dashboard only
+    # needs weekly totals, and commit_activity can remain at 202 in CI.
+    url = _commit_participation_url(repo)
     try:
         response = helpers.s.get(url=url, headers=headers)
     except requests.exceptions.RequestException as e:
@@ -315,10 +455,6 @@ def _fetch_commit_activity(repo, headers: dict) -> str:
 
     if response.status_code == 202:
         return COMMIT_ACTIVITY_PENDING
-
-    if response.status_code == 204:
-        _write_commit_activity(repo, [])
-        return COMMIT_ACTIVITY_READY
 
     try:
         data = response.json()
@@ -331,11 +467,12 @@ def _fetch_commit_activity(repo, headers: dict) -> str:
         log.warning(f'Error fetching commit activity for {repo.name}: {message}')
         return COMMIT_ACTIVITY_FAILED
 
-    if not isinstance(data, list):
+    commit_activity = _participation_to_commit_activity(data)
+    if not commit_activity:
         log.warning(f'Unexpected commit activity response for {repo.name}: {data}')
         return COMMIT_ACTIVITY_FAILED
 
-    _write_commit_activity(repo, data)
+    _write_commit_activity(repo, commit_activity, sha)
     return COMMIT_ACTIVITY_READY
 
 
@@ -612,19 +749,13 @@ def _fetch_open_graph_image_url(repo, headers: dict, graphql_url: str) -> str:
         raise RuntimeError(f'Error: update_github: {repo_data}') from None
 
 
-def _collect_commit_activity(
-        repos: list,
-        headers: dict,
-        poll_attempts: int = COMMIT_ACTIVITY_POLL_ATTEMPTS,
-        poll_interval: int = COMMIT_ACTIVITY_POLL_INTERVAL,
-) -> None:
+def _collect_commit_activity(repos: list, headers: dict) -> None:
     """
-    Trigger and collect weekly commit activity for active repositories.
+    Collect weekly commit totals for active repositories.
 
-    GitHub may return ``202 Accepted`` for the stats endpoint while it starts
-    its server-side calculation. The first pass gives every repository a chance
-    to start that work. Later passes only revisit repositories that were still
-    pending after the previous request.
+    GitHub caches repository stats by the current default-branch SHA. Reuse
+    cached files while the SHA matches, and refresh only when the SHA changes
+    or when no cached stats file exists.
 
     Parameters
     ----------
@@ -632,49 +763,20 @@ def _collect_commit_activity(
         Active PyGithub Repository objects.
     headers : dict
         HTTP headers including the GitHub authorisation token.
-    poll_attempts : int
-        Maximum number of follow-up passes for pending repositories.
-    poll_interval : int
-        Seconds to wait between follow-up passes.
     """
-    pending_repos = []
     for repo in tqdm(
             iterable=repos,
-            desc='Triggering GitHub commit activity',
+            desc='Updating GitHub commit activity',
     ):
-        status = _fetch_commit_activity(repo, headers)
+        sha = _run_github_repo_step(repo, 'default branch SHA', lambda: _default_branch_sha(repo))
+        if sha and _has_cached_commit_activity(repo) and _cached_commit_activity_sha(repo) == sha:
+            continue
+
+        status = _fetch_commit_activity(repo, headers, sha)
         if status == COMMIT_ACTIVITY_PENDING:
-            pending_repos.append(repo)
-
-    for attempt in range(1, poll_attempts + 1):
-        if not pending_repos:
-            return
-
-        if poll_interval > 0:
-            message = (
-                f'Waiting {poll_interval}s for GitHub commit activity calculation '
-                f'({len(pending_repos)} repos pending, attempt {attempt}/{poll_attempts}).'
-            )
-            log.info(message)
+            message = f'GitHub commit activity is still being calculated for: {repo.name}'
+            log.warning(message)
             tqdm.write(message)
-            time.sleep(poll_interval)
-
-        next_pending = []
-        for repo in tqdm(
-                iterable=pending_repos,
-                desc=f'Collecting GitHub commit activity ({attempt}/{poll_attempts})',
-        ):
-            status = _fetch_commit_activity(repo, headers)
-            if status == COMMIT_ACTIVITY_PENDING:
-                next_pending.append(repo)
-
-        pending_repos = next_pending
-
-    if pending_repos:
-        repo_names = ', '.join(repo.name for repo in pending_repos)
-        message = f'GitHub commit activity is still being calculated for: {repo_names}'
-        log.warning(message)
-        tqdm.write(message)
 
 
 def _process_github_repo(repo, headers: dict, graphql_url: str) -> None:
