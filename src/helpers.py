@@ -18,6 +18,11 @@ from src.logger import log
 # constants
 HTTPS = 'https://'
 DEFAULT_TIMEOUT = 30  # seconds
+BOT_ISSUE_AUTHOR_LOGINS = frozenset({
+    'github-actions[bot]',
+    'lizardbyte-bot',
+    'renovate[bot]',
+})
 
 # setup requests sessions
 retry_adapter = HTTPAdapter(max_retries=Retry(total=5, backoff_factor=1))
@@ -66,6 +71,19 @@ class RateLimitedSession(TimeoutSession):
 # readthedocs rate-limited session (60 authenticated requests per minute)
 rtd_s = RateLimitedSession(calls_per_minute=60)
 rtd_s.mount(HTTPS, retry_adapter)
+
+
+def is_bot_issue_author(login: str | None, account_type: str | None = None) -> bool:
+    """
+    Return whether a GitHub issue author should be grouped with bot-opened issues.
+    """
+    normalized_login = (login or '').lower()
+    normalized_type = (account_type or '').lower()
+    return (
+        normalized_type == 'bot' or
+        normalized_login in BOT_ISSUE_AUTHOR_LOGINS or
+        normalized_login.endswith('[bot]')
+    )
 
 
 def debug_print(

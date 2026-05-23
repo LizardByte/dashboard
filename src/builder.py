@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 
 # local imports
 from src import BASE_DIR, TEMPLATE_DIR
+from src import helpers
 from src.logger import log
 
 
@@ -83,6 +84,18 @@ def _get_prs(base_dir: str, name: str) -> list:
             return json.load(f)
     except Exception:
         return []
+
+
+def _get_issues(base_dir: str, name: str) -> list | None:
+    safe = _safe_name(name)
+    issues_path = os.path.join(base_dir, 'github', 'issues', f'{safe}.json')
+    if not os.path.exists(issues_path):
+        return None
+    try:
+        with open(issues_path) as f:
+            return json.load(f)
+    except Exception:
+        return None
 
 
 def _get_commit_activity(base_dir: str, name: str) -> list:
@@ -183,13 +196,24 @@ def _build_repo_entry(
         coverage: float,
         languages: dict,
         prs: list,
+        issues: list | None,
         rtd_repos: set,
         code_scanning_open: int,
 ) -> dict:
     name = repo['name']
     pr_count = len(prs)
-    open_issues_total = repo.get('open_issues_count', 0)
-    issue_count = max(0, open_issues_total - pr_count)
+    if issues is None:
+        open_issues_total = repo.get('open_issues_count', 0)
+        issue_count = max(0, open_issues_total - pr_count)
+        bot_issue_count = 0
+        other_issue_count = issue_count
+    else:
+        issue_count = len(issues)
+        bot_issue_count = sum(
+            1 for issue in issues
+            if issue.get('is_bot') or helpers.is_bot_issue_author(issue.get('author'), issue.get('author_type'))
+        )
+        other_issue_count = max(0, issue_count - bot_issue_count)
 
     license_info = repo.get('license')
     license_name = 'No License'
@@ -201,6 +225,8 @@ def _build_repo_entry(
         'stars': repo.get('stargazers_count', 0),
         'forks': repo.get('forks_count', 0),
         'issues': issue_count,
+        'issues_bot': bot_issue_count,
+        'issues_other': other_issue_count,
         'prs': pr_count,
         'license': license_name,
         'coverage': coverage,
@@ -251,12 +277,13 @@ def build():
             coverage = max(coverage_hist, key=lambda e: e.get('date', '')).get('coverage', 0.0)
         languages = _get_languages(BASE_DIR, name)
         prs = _get_prs(BASE_DIR, name)
+        issues = _get_issues(BASE_DIR, name)
         commit_activity.extend(_get_commit_activity(BASE_DIR, name))
         star_history.extend(_get_star_history(BASE_DIR, name))
         code_scanning_open = _get_code_scanning_open(BASE_DIR, name)
         code_scanning_history.extend(_get_code_scanning_history(BASE_DIR, name))
 
-        repos.append(_build_repo_entry(repo, coverage, languages, prs, rtd_repos, code_scanning_open))
+        repos.append(_build_repo_entry(repo, coverage, languages, prs, issues, rtd_repos, code_scanning_open))
         prs_all.extend({'repo': name, **pr} for pr in prs)
 
     data_dir = os.path.join(TEMPLATE_DIR, 'assets', 'data')

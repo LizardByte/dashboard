@@ -39,6 +39,20 @@ class FakePull:
         self.milestone = None
 
 
+class FakeIssue:
+    def __init__(self, number=1, author='person', author_type='User', is_pr=False, raw_pr=False):
+        self.number = number
+        self.title = 'Issue'
+        self.user = SimpleNamespace(login=author, type=author_type)
+        self.labels = [SimpleNamespace(name='bug')]
+        self.assignees = [SimpleNamespace(login='owner')]
+        self.created_at = datetime(2026, 1, 1, tzinfo=timezone.utc)
+        self.updated_at = datetime(2026, 1, 2, tzinfo=timezone.utc)
+        self.milestone = None
+        self.pull_request = SimpleNamespace() if is_pr else None
+        self.raw_data = {'pull_request': {}} if raw_pr else {}
+
+
 class FakeStargazer:
     def __init__(self, date):
         self.starred_at = datetime.strptime(date, '%Y-%m-%d').replace(tzinfo=timezone.utc)
@@ -75,6 +89,15 @@ class FakeRepo:
     def get_pulls(self, state='open'):
         assert state == 'open'
         return [FakePull(3)]
+
+    def get_issues(self, state='open'):
+        assert state == 'open'
+        return [
+            FakeIssue(1, 'person'),
+            FakeIssue(2, 'renovate[bot]'),
+            FakeIssue(3, 'pull-author', is_pr=True),
+            FakeIssue(4, 'raw-pull-author', raw_pr=True),
+        ]
 
     def get_stargazers_with_dates(self):
         return FakeStargazers({
@@ -473,6 +496,15 @@ def test_collect_star_history(monkeypatch, tmp_path):
     assert updater._collect_star_history(FakeRepo(stars=0)) == []
 
 
+def test_collect_open_issues_filters_prs_and_flags_bots():
+    issues = updater._collect_open_issues(FakeRepo(name='demo'))
+
+    assert [issue['number'] for issue in issues] == [1, 2]
+    assert issues[0]['is_bot'] is False
+    assert issues[1]['author'] == 'renovate[bot]'
+    assert issues[1]['is_bot'] is True
+
+
 def test_process_github_repo(monkeypatch, tmp_path):
     monkeypatch.setattr(updater, 'BASE_DIR', str(tmp_path / 'gh-pages'))
 
@@ -499,6 +531,7 @@ def test_process_github_repo(monkeypatch, tmp_path):
     updater._process_github_repo(FakeRepo(name='demo'), {'Authorization': 'x'}, 'https://api.github.com/graphql')
 
     assert any(path.endswith('languages\\demo') or path.endswith('languages/demo') for path, _ in writes)
+    assert any(path.endswith(('issues\\demo', 'issues/demo')) for path, _ in writes)
     assert any(path.endswith('codeScanning\\demo') or path.endswith('codeScanning/demo') for path, _ in writes)
     assert any(
         path.endswith('codeScanningHistory\\demo') or path.endswith('codeScanningHistory/demo') for path, _ in writes)

@@ -89,6 +89,64 @@ function renderBarChart(divId, entries) {
     }), CONFIG);
 }
 
+function issueCounts(repo) {
+    const bot = Math.max(0, Number(repo.issues_bot || 0));
+    const other = repo.issues_other === undefined
+        ? Math.max(0, Number(repo.issues || 0) - bot)
+        : Math.max(0, Number(repo.issues_other || 0));
+    const total = bot + other || Math.max(0, Number(repo.issues || 0));
+    return {
+        name: repo.name,
+        bot,
+        other: bot + other ? other : total,
+        total,
+    };
+}
+
+function renderIssuesBarChart(active) {
+    const el = document.getElementById('chart-issues');
+    if (!el) return;
+    const sorted = active
+        .map(issueCounts)
+        .filter(r => r.total > 0)
+        .sort((a, b) => b.total - a.total);
+    if (!sorted.length) return;
+
+    const scaled = sorted.map(r => {
+        const scale = Math.log1p(r.total) / r.total;
+        return {
+            ...r,
+            otherScaled: r.other * scale,
+            botScaled: r.bot * scale,
+        };
+    });
+
+    Plotly.newPlot('chart-issues', [
+        {
+            name: 'Other',
+            x: scaled.map(r => r.name),
+            y: scaled.map(r => r.otherScaled),
+            text: scaled.map(r => (r.other ? String(r.other) : '')),
+            type: 'bar',
+            textposition: 'inside',
+            marker: { color: '#28a9e6' },
+        },
+        {
+            name: 'Bot',
+            x: scaled.map(r => r.name),
+            y: scaled.map(r => r.botScaled),
+            text: scaled.map(r => (r.bot ? String(r.bot) : '')),
+            type: 'bar',
+            textposition: 'inside',
+            marker: { color: '#f59f00' },
+        },
+    ], themeLayout({
+        barmode: 'stack',
+        yaxis: { showticklabels: false },
+        xaxis: { tickangle: -45 },
+    }), CONFIG);
+}
+
 // Star history line chart
 function renderStarHistory(history) {
     const el = document.getElementById('chart-star-history');
@@ -602,7 +660,7 @@ async function loadDashboard() {
         renderBarChart('chart-stars', active.map(r => ({ name: r.name, value: r.stars })));
         renderStarHistory(starHistory);
         renderBarChart('chart-forks', active.map(r => ({ name: r.name, value: r.forks })));
-        renderBarChart('chart-issues', active.map(r => ({ name: r.name, value: r.issues })));
+        renderIssuesBarChart(active);
         renderBarChart('chart-code-scanning', active.map(r => ({ name: r.name, value: r.code_scanning_open || 0 })));
         renderCodeScanningHistory(codeScanningHistory);
         renderPRsBarChart(active, activePRs);
@@ -634,6 +692,7 @@ if (typeof module !== 'undefined' && module.exports) {
         activeRepos,
         renderSummary,
         renderBarChart,
+        renderIssuesBarChart,
         renderStarHistory,
         renderPRsBarChart,
         stripTags,
