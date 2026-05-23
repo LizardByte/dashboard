@@ -38,6 +38,8 @@ function sampleRepos() {
             stars: 5,
             forks: 3,
             issues: 2,
+            issues_bot: 1,
+            issues_other: 1,
             prs: 1,
             code_scanning_open: 4,
             license: 'MIT',
@@ -53,6 +55,8 @@ function sampleRepos() {
             stars: 1,
             forks: 1,
             issues: 0,
+            issues_bot: 0,
+            issues_other: 0,
             prs: 0,
             code_scanning_open: 0,
             license: null,
@@ -139,6 +143,31 @@ describe('dashboard.js', () => {
 
         mod.renderBarChart('chart-stars', [{ name: 'a', value: 1 }, { name: 'b', value: 3 }]);
         expect(globalThis.Plotly.newPlot).toHaveBeenCalledTimes(1);
+    });
+
+    test('renderIssuesBarChart splits bot and other issues', () => {
+        const el = document.getElementById('chart-issues');
+        el.remove();
+        mod.renderIssuesBarChart(sampleRepos());
+        expect(globalThis.Plotly.newPlot).toHaveBeenCalledTimes(0);
+
+        document.body.appendChild(el);
+        mod.renderIssuesBarChart([{ name: 'empty', issues: 0 }]);
+        expect(globalThis.Plotly.newPlot).toHaveBeenCalledTimes(0);
+
+        mod.renderIssuesBarChart([
+            { name: 'repo-a', issues: 3, issues_bot: 1 },
+            { name: 'repo-b', issues: 2, issues_bot: 2, issues_other: 0 },
+            { name: 'repo-c', issues: 1 },
+        ]);
+        expect(globalThis.Plotly.newPlot).toHaveBeenCalledTimes(1);
+
+        const [divId, traces, layout] = globalThis.Plotly.newPlot.mock.calls[0];
+        expect(divId).toBe('chart-issues');
+        expect(traces.map(trace => trace.name)).toEqual(['Other', 'Bot']);
+        expect(traces[0].text).toEqual(['2', '', '1']);
+        expect(traces[1].text).toEqual(['1', '2', '']);
+        expect(layout.barmode).toBe('stack');
     });
 
     test('renderStarHistory branches', () => {

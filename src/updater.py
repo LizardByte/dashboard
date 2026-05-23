@@ -709,6 +709,54 @@ def _collect_open_pulls(repo) -> list[dict]:
     return pulls_data
 
 
+def _is_pull_request_issue(issue) -> bool:
+    """
+    Return whether a GitHub issue object represents a pull request.
+    """
+    if getattr(issue, 'pull_request', None):
+        return True
+
+    raw_data = getattr(issue, 'raw_data', {}) or {}
+    return 'pull_request' in raw_data and raw_data.get('pull_request') is not None
+
+
+def _collect_open_issues(repo) -> list[dict]:
+    """
+    Fetch open issue summary data for a repository, excluding pull requests.
+
+    Parameters
+    ----------
+    repo :
+        PyGithub Repository object.
+
+    Returns
+    -------
+    list
+        Issue summary dictionaries.
+    """
+    issues_data = []
+    for issue in repo.get_issues(state='open'):
+        if _is_pull_request_issue(issue):
+            continue
+
+        author = getattr(issue, 'user', None)
+        author_login = getattr(author, 'login', None)
+        author_type = getattr(author, 'type', None)
+        issues_data.append({
+            'number': issue.number,
+            'title': issue.title,
+            'author': author_login,
+            'author_type': author_type,
+            'is_bot': helpers.is_bot_issue_author(author_login, author_type),
+            'labels': [label.name for label in issue.labels],
+            'assignees': [assignee.login for assignee in issue.assignees],
+            'created_at': issue.created_at.isoformat(),
+            'updated_at': issue.updated_at.isoformat(),
+            'milestone': issue.milestone.title if issue.milestone else None,
+        })
+    return issues_data
+
+
 def _fetch_open_graph_image_url(repo, headers: dict, graphql_url: str) -> str:
     """
     Fetch a repository's OpenGraph image URL from GitHub GraphQL.
@@ -816,6 +864,12 @@ def _process_github_repo(repo, headers: dict, graphql_url: str) -> None:
     if pulls_data is not None:
         file_path = os.path.join(BASE_DIR, 'github', 'pulls', repo.name)
         helpers.write_json_files(file_path=file_path, data=pulls_data)
+
+    # open issues
+    issues_data = _run_github_repo_step(repo, 'issues', lambda: _collect_open_issues(repo))
+    if issues_data is not None:
+        file_path = os.path.join(BASE_DIR, 'github', 'issues', repo.name)
+        helpers.write_json_files(file_path=file_path, data=issues_data)
 
     # open code scanning alerts and per-day history
     alerts = _run_github_repo_step(repo, 'code scanning alerts', lambda: _fetch_code_scanning_alerts(repo))

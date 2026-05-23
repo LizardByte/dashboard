@@ -65,6 +65,18 @@ def test_rate_limited_session_no_wait_when_interval_elapsed(monkeypatch):
     assert session.request('GET', 'https://example.com') == 'ok'
 
 
+def test_is_bot_issue_author():
+    assert helpers.is_bot_issue_author('renovate') is False
+    assert helpers.is_bot_issue_author('renovate[bot]') is True
+    assert helpers.is_bot_issue_author('github-actions') is False
+    assert helpers.is_bot_issue_author('github-actions[bot]') is True
+    assert helpers.is_bot_issue_author('LizardByte-bot') is True
+    assert helpers.is_bot_issue_author('someone', 'Bot') is True
+    assert helpers.is_bot_issue_author('dependabot[bot]') is True
+    assert helpers.is_bot_issue_author('person') is False
+    assert helpers.is_bot_issue_author(None, None) is False
+
+
 def test_debug_print_logs_and_prints(monkeypatch):
     logs = []
     prints = []

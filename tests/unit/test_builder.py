@@ -62,6 +62,7 @@ def test_get_coverage_and_history_fallbacks(tmp_path):
 def test_get_languages_prs_commit_activity_and_star_history(tmp_path):
     _write_json(tmp_path / 'github' / 'languages' / 'demo.json', {'Python': 100})
     _write_json(tmp_path / 'github' / 'pulls' / 'demo.json', [{'number': 1}])
+    _write_json(tmp_path / 'github' / 'issues' / 'demo.json', [{'number': 2}])
     _write_json(tmp_path / 'github' / 'commitActivity' / 'demo.json', [
         {'week': 0, 'total': 0},
         {'week': 86400, 'total': 3},
@@ -70,6 +71,7 @@ def test_get_languages_prs_commit_activity_and_star_history(tmp_path):
 
     assert builder._get_languages(str(tmp_path), 'demo') == {'Python': 100}
     assert builder._get_prs(str(tmp_path), 'demo') == [{'number': 1}]
+    assert builder._get_issues(str(tmp_path), 'demo') == [{'number': 2}]
     assert builder._get_commit_activity(str(tmp_path), 'demo') == [
         {'repo': 'demo', 'week': '1970-01-02', 'total': 3},
     ]
@@ -81,19 +83,22 @@ def test_get_languages_prs_commit_activity_and_star_history(tmp_path):
 def test_get_languages_prs_commit_activity_and_star_history_fallbacks(tmp_path):
     assert builder._get_languages(str(tmp_path), 'demo') == {}
     assert builder._get_prs(str(tmp_path), 'demo') == []
+    assert builder._get_issues(str(tmp_path), 'demo') is None
     assert builder._get_commit_activity(str(tmp_path), 'demo') == []
     assert builder._get_star_history(str(tmp_path), 'demo') == []
 
     bad_lang = tmp_path / 'github' / 'languages' / 'demo.json'
     bad_prs = tmp_path / 'github' / 'pulls' / 'demo.json'
+    bad_issues = tmp_path / 'github' / 'issues' / 'demo.json'
     bad_commits = tmp_path / 'github' / 'commitActivity' / 'demo.json'
     bad_stars = tmp_path / 'github' / 'starHistory' / 'demo.json'
-    for path in [bad_lang, bad_prs, bad_commits, bad_stars]:
+    for path in [bad_lang, bad_prs, bad_issues, bad_commits, bad_stars]:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text('{bad', encoding='utf-8')
 
     assert builder._get_languages(str(tmp_path), 'demo') == {}
     assert builder._get_prs(str(tmp_path), 'demo') == []
+    assert builder._get_issues(str(tmp_path), 'demo') is None
     assert builder._get_commit_activity(str(tmp_path), 'demo') == []
     assert builder._get_star_history(str(tmp_path), 'demo') == []
 
@@ -136,18 +141,29 @@ def test_build_repo_entry_computes_counts_and_license():
         'created_at': 'x',
         'updated_at': 'y',
     }
-    out = builder._build_repo_entry(repo, 80.0, {'Python': 100}, [{'id': 1}], {'demo'}, 4)
+    out = builder._build_repo_entry(repo, 80.0, {'Python': 100}, [{'id': 1}], None, {'demo'}, 4)
 
     assert out['issues'] == 2
+    assert out['issues_bot'] == 0
+    assert out['issues_other'] == 2
     assert out['prs'] == 1
     assert out['license'] == 'No License'
     assert out['has_readthedocs'] is True
     assert out['code_scanning_open'] == 4
 
     repo['license'] = {'spdx_id': 'MIT'}
-    assert builder._build_repo_entry(repo, 80.0, {}, [], set(), 0)['license'] == 'MIT'
+    assert builder._build_repo_entry(repo, 80.0, {}, [], [], set(), 0)['license'] == 'MIT'
     repo['license'] = {'name': 'Apache-2.0'}
-    assert builder._build_repo_entry(repo, 80.0, {}, [], set(), 0)['license'] == 'Apache-2.0'
+    issues = [
+        {'author': 'person', 'is_bot': False},
+        {'author': 'renovate[bot]', 'is_bot': True},
+        {'author': 'dependabot[bot]'},
+    ]
+    counted = builder._build_repo_entry(repo, 80.0, {}, [], issues, set(), 0)
+    assert counted['license'] == 'Apache-2.0'
+    assert counted['issues'] == 3
+    assert counted['issues_bot'] == 2
+    assert counted['issues_other'] == 1
 
 
 def test_build_end_to_end(monkeypatch, tmp_path):
@@ -178,6 +194,10 @@ def test_build_end_to_end(monkeypatch, tmp_path):
     _write_json(base / 'codecov' / 'demo_coverage_trend.json', [{'timestamp': '2026-01-03', 'avg': 91}])
     _write_json(base / 'github' / 'languages' / 'demo.json', {'Python': 100})
     _write_json(base / 'github' / 'pulls' / 'demo.json', [{'number': 7, 'title': 'PR'}])
+    _write_json(base / 'github' / 'issues' / 'demo.json', [
+        {'number': 1, 'author': 'person', 'is_bot': False},
+        {'number': 2, 'author': 'LizardByte-bot', 'is_bot': True},
+    ])
     _write_json(base / 'github' / 'commitActivity' / 'demo.json', [{'week': 86400, 'total': 2}])
     _write_json(base / 'github' / 'starHistory' / 'demo.json', [{'date': '2026-01-01', 'stars': 4}])
     _write_json(base / 'github' / 'codeScanning' / 'demo.json', {'open': 5})
@@ -202,6 +222,9 @@ def test_build_end_to_end(monkeypatch, tmp_path):
     built_repos = json.loads((data_dir / 'repos.json').read_text(encoding='utf-8'))
     assert len(built_repos) == 1
     assert built_repos[0]['coverage'] == pytest.approx(91.0)
+    assert built_repos[0]['issues'] == 2
+    assert built_repos[0]['issues_bot'] == 1
+    assert built_repos[0]['issues_other'] == 1
     assert built_repos[0]['code_scanning_open'] == 5
 
     built_history = json.loads((data_dir / 'code_scanning_history.json').read_text(encoding='utf-8'))
