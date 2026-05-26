@@ -1,1 +1,1 @@
-[{"number": 137, "title": "refactor: Move platform specific code from QtTrayMenu to tray_linux", "author": "Kishi85", "labels": [], "assignees": [], "created_at": "2026-05-26T06:16:50+00:00", "updated_at": "2026-05-26T06:17:30+00:00", "draft": false, "milestone": null}]
+[{"number": 137, "title": "refactor: Move platform specific code from QtTrayMenu to tray_linux", "author": "Kishi85", "labels": [], "assignees": [], "created_at": "2026-05-26T06:16:50+00:00", "updated_at": "2026-05-26T13:47:49+00:00", "draft": false, "milestone": null}]
