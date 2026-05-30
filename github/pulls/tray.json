@@ -1,1 +1,1 @@
-[{"number": 139, "title": "fix(linux): break QtMainLoop on exit if loop() was called blocking", "author": "Kishi85", "labels": [], "assignees": [], "created_at": "2026-05-30T08:26:37+00:00", "updated_at": "2026-05-30T09:01:04+00:00", "draft": false, "milestone": null}]
+[]
