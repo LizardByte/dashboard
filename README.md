@@ -16,8 +16,8 @@ A dashboard for viewing LizardByte repository data inside a Jekyll static site.
 ### Python unit tests
 
 ```bash
-python -m pip install -e ".[dev]"
-python -m pytest
+uv sync --locked
+uv run --locked pytest
 ```
 
 ### JavaScript unit tests

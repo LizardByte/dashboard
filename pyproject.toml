@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "dashboard"
-dynamic = ["version"]
+version = "0.0.0"
 description = "Dashboard for LizardByte"
 requires-python = ">=3.14"
 license = {text = "MIT"}
@@ -22,7 +22,7 @@ dependencies = [
     "unhandled_exit==1.0.0",
 ]
 
-[project.optional-dependencies]
+[dependency-groups]
 dev = [
     "flake8==7.3.0",
     "pytest==9.0.3",
@@ -51,6 +51,7 @@ addopts = [
     "--color=yes",
     "--cov=src",
     "--cov-report=term-missing",
+    "--cov-report=xml:coverage/python-coverage.xml",
     "--cov-fail-under=100",
     "--junitxml=junit-python.xml",
     "-o", "junit_family=legacy",
