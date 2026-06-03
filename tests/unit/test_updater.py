@@ -118,7 +118,7 @@ def test_update_aur(monkeypatch):
     updater.update_aur(['a', 'b'])
 
     assert len(written) == 2
-    assert written[0][0].endswith('aur\\a') or written[0][0].endswith('aur/a')
+    assert written[0][0].endswith(('aur\\a', 'aur/a'))
 
 
 def test_process_coverage_response(monkeypatch):
@@ -223,7 +223,7 @@ def test_update_discord(monkeypatch):
     updater.update_discord()
 
     assert any(
-        file_path.endswith('discord\\invite') or file_path.endswith('discord/invite')
+        file_path.endswith(('discord\\invite', 'discord/invite'))
         for file_path, _ in writes
     )
 
@@ -530,11 +530,11 @@ def test_process_github_repo(monkeypatch, tmp_path):
 
     updater._process_github_repo(FakeRepo(name='demo'), {'Authorization': 'x'}, 'https://api.github.com/graphql')
 
-    assert any(path.endswith('languages\\demo') or path.endswith('languages/demo') for path, _ in writes)
+    assert any(path.endswith(('languages\\demo', 'languages/demo')) for path, _ in writes)
     assert any(path.endswith(('issues\\demo', 'issues/demo')) for path, _ in writes)
-    assert any(path.endswith('codeScanning\\demo') or path.endswith('codeScanning/demo') for path, _ in writes)
+    assert any(path.endswith(('codeScanning\\demo', 'codeScanning/demo')) for path, _ in writes)
     assert any(
-        path.endswith('codeScanningHistory\\demo') or path.endswith('codeScanningHistory/demo') for path, _ in writes)
+        path.endswith(('codeScanningHistory\\demo', 'codeScanningHistory/demo')) for path, _ in writes)
     assert any(path == 'img' for path, _ in writes)
 
 
@@ -601,7 +601,7 @@ def test_update_github(monkeypatch):
 
     updater.update_github()
 
-    assert any(path.endswith('github\\repos') or path.endswith('github/repos') for path, _ in writes)
+    assert any(path.endswith(('github\\repos', 'github/repos')) for path, _ in writes)
     assert commit_repos == ['active', 'pending']
     assert processed == ['active', 'pending']
 
