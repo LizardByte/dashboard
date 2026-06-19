@@ -1,1 +1,1 @@
-[]
+[{"number": 278, "title": "chore(deps): update official github actions to v7", "author": "renovate[bot]", "labels": ["dependencies", "ci"], "assignees": [], "created_at": "2026-06-19T10:46:08+00:00", "updated_at": "2026-06-19T11:04:15+00:00", "draft": false, "milestone": null}, {"number": 277, "title": "chore(deps): update devdependencies (non-major) to v8.0.2", "author": "renovate[bot]", "labels": ["dependencies", "js"], "assignees": [], "created_at": "2026-06-19T10:46:03+00:00", "updated_at": "2026-06-19T11:04:19+00:00", "draft": false, "milestone": null}]
