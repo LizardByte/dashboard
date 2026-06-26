@@ -151,6 +151,39 @@ def test_fetch_coverage_trend_for_repo(monkeypatch):
     assert calls == [1, 2]
 
 
+@pytest.mark.parametrize(('coverage', 'color'), [
+    (100, 'brightgreen'),
+    (90, 'brightgreen'),
+    (89.9, 'green'),
+    (70, 'green'),
+    (69.9, 'yellowgreen'),
+    (50, 'yellowgreen'),
+    (49.9, 'yellow'),
+    (30, 'yellow'),
+    (29.9, 'orange'),
+    (10, 'orange'),
+    (9.9, 'red'),
+])
+def test_coverage_badge_color(coverage, color):
+    assert updater._coverage_badge_color(coverage) == color
+
+
+def test_build_codecov_shields_badge():
+    assert updater._build_codecov_shields_badge({'totals': {'coverage': 81.5}}) == {
+        'schemaVersion': 1,
+        'label': 'codecov',
+        'message': '81.5%',
+        'color': 'green',
+    }
+
+    assert updater._build_codecov_shields_badge({'totals': {'coverage': 'bad'}}) == {
+        'schemaVersion': 1,
+        'label': 'codecov',
+        'message': '0%',
+        'color': 'red',
+    }
+
+
 def test_update_codecov_success(monkeypatch, tmp_path):
     base = tmp_path / 'gh-pages'
     repos_file = base / 'github' / 'repos.json'
@@ -176,6 +209,7 @@ def test_update_codecov_success(monkeypatch, tmp_path):
 
     assert any('active-repo' in path for path, _ in writes)
     assert not any('archived-repo' in path for path, _ in writes)
+    assert any(path.endswith(('shields\\codecov\\active-repo', 'shields/codecov/active-repo')) for path, _ in writes)
     assert any(path.endswith('active-repo_coverage_trend') for path, _ in writes)
 
 
