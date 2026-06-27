@@ -1,1 +1,1 @@
-[]
+[{"number": 286, "title": "chore(deps): update dependency eslint to v10.6.0", "author": "renovate[bot]", "labels": ["dependencies", "js"], "assignees": [], "created_at": "2026-06-27T05:48:35+00:00", "updated_at": "2026-06-27T05:52:02+00:00", "draft": false, "milestone": null}, {"number": 285, "title": "chore(deps): update actions/cache action to v6.1.0", "author": "renovate[bot]", "labels": ["dependencies", "ci"], "assignees": [], "created_at": "2026-06-27T05:48:23+00:00", "updated_at": "2026-06-27T05:51:29+00:00", "draft": false, "milestone": null}]
