@@ -1,1 +1,1 @@
-[]
+[{"number": 728, "title": "fix(ffmpeg/vulkan): destroy leaked VkImageViews during encoder uninit", "author": "neatnoise", "labels": [], "assignees": [], "created_at": "2026-07-13T10:27:15+00:00", "updated_at": "2026-07-13T11:35:53+00:00", "draft": false, "milestone": null}]
