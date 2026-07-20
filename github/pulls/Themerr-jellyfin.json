@@ -1,1 +1,1 @@
-[]
+[{"number": 877, "title": "chore(deps): update actions/setup-python action to v7", "author": "renovate[bot]", "labels": ["dependencies", "ci"], "assignees": [], "created_at": "2026-07-20T08:06:40+00:00", "updated_at": "2026-07-20T08:09:09+00:00", "draft": false, "milestone": null}]
