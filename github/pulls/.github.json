@@ -1,1 +1,1 @@
-[]
+[{"number": 806, "title": "chore(deps): update dependency renovate to v43.277.0", "author": "renovate[bot]", "labels": ["dependencies", "js"], "assignees": [], "created_at": "2026-07-22T10:03:51+00:00", "updated_at": "2026-07-22T10:04:24+00:00", "draft": false, "milestone": null}, {"number": 805, "title": "chore(deps): update official github actions", "author": "renovate[bot]", "labels": ["dependencies", "ci"], "assignees": [], "created_at": "2026-07-22T10:03:32+00:00", "updated_at": "2026-07-22T10:04:06+00:00", "draft": false, "milestone": null}]
