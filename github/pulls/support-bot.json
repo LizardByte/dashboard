@@ -1,1 +1,1 @@
-[]
+[{"number": 576, "title": "chore(deps): update astral-sh/setup-uv action to v9", "author": "renovate[bot]", "labels": ["dependencies", "ci"], "assignees": [], "created_at": "2026-07-23T06:27:32+00:00", "updated_at": "2026-07-23T06:29:22+00:00", "draft": false, "milestone": null}, {"number": 575, "title": "chore(deps): update dependency gitpython to v3.1.55", "author": "renovate[bot]", "labels": ["dependencies", "python"], "assignees": [], "created_at": "2026-07-23T06:27:27+00:00", "updated_at": "2026-07-23T06:29:08+00:00", "draft": false, "milestone": null}]
