@@ -1,1 +1,1 @@
-[]
+[{"number": 301, "title": "chore(deps): update dependency eslint to v10.8.0", "author": "renovate[bot]", "labels": ["dependencies", "js"], "assignees": [], "created_at": "2026-07-25T05:11:53+00:00", "updated_at": "2026-07-25T05:23:19+00:00", "draft": false, "milestone": null}, {"number": 300, "title": "chore(deps): update dependency tqdm to v4.69.1", "author": "renovate[bot]", "labels": ["dependencies", "python"], "assignees": [], "created_at": "2026-07-25T05:11:38+00:00", "updated_at": "2026-07-25T05:21:54+00:00", "draft": false, "milestone": null}]
