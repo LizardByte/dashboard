@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 # local imports
 from src import BASE_DIR, TEMPLATE_DIR
 from src import helpers
+from src import pr_metrics
 from src.logger import log
 
 
@@ -264,6 +265,7 @@ def build():
     commit_activity = []
     star_history = []
     code_scanning_history = []
+    pr_metric_caches = {}
 
     for repo in raw_repos:
         if repo.get('private') or repo.get('archived'):
@@ -282,6 +284,8 @@ def build():
         star_history.extend(_get_star_history(BASE_DIR, name))
         code_scanning_open = _get_code_scanning_open(BASE_DIR, name)
         code_scanning_history.extend(_get_code_scanning_history(BASE_DIR, name))
+        if pr_metrics.is_active_repo(repo):
+            pr_metric_caches[name] = pr_metrics.load_cache(BASE_DIR, name)
 
         repos.append(_build_repo_entry(repo, coverage, languages, prs, issues, rtd_repos, code_scanning_open))
         prs_all.extend({'repo': name, **pr} for pr in prs)
@@ -301,10 +305,13 @@ def build():
     write_json('commit_activity.json', commit_activity)
     write_json('star_history.json', star_history)
     write_json('code_scanning_history.json', code_scanning_history)
+    write_json('pr_metrics.json', pr_metric_caches)
+    now = datetime.now(timezone.utc)
     write_json('metadata.json', {
-        'updated_at': datetime.now(timezone.utc).isoformat(),
+        'updated_at': now.isoformat(),
         'repo_count': len(repos),
     })
+    pr_metrics.write_report_pages(TEMPLATE_DIR, pr_metric_caches, now)
 
     log.info('Dashboard build complete.')
 

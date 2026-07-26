@@ -471,6 +471,24 @@ def test_collect_commit_activity_returns_when_all_ready(monkeypatch, tmp_path):
     assert warnings == []
 
 
+def test_collect_pr_metrics(monkeypatch):
+    repos = [FakeRepo('one'), FakeRepo('two')]
+    calls = []
+
+    monkeypatch.setattr(
+        updater.pr_metrics,
+        'refresh_repository',
+        lambda repo, base_dir, headers, session: calls.append((repo.name, base_dir, headers, session)),
+    )
+
+    updater._collect_pr_metrics(repos, {'Authorization': 'token'})
+
+    assert calls == [
+        ('one', updater.BASE_DIR, {'Authorization': 'token'}, updater.helpers.s),
+        ('two', updater.BASE_DIR, {'Authorization': 'token'}, updater.helpers.s),
+    ]
+
+
 def test_seed_star_history(monkeypatch):
     repo = FakeRepo(stars=250)
     history = updater._seed_star_history(repo, total=250, initial_samples=5)
@@ -629,6 +647,12 @@ def test_update_github(monkeypatch):
         '_collect_commit_activity',
         lambda repos, headers: commit_repos.extend(repo.name for repo in repos),
     )
+    metric_repos = []
+    monkeypatch.setattr(
+        updater,
+        '_collect_pr_metrics',
+        lambda repos, headers: metric_repos.extend(repo.name for repo in repos),
+    )
     processed = []
     monkeypatch.setattr(updater, '_process_github_repo', lambda repo, headers, graphql_url: processed.append(repo.name))
     monkeypatch.setattr(updater, 'BASE_DIR', 'base')
@@ -637,6 +661,7 @@ def test_update_github(monkeypatch):
 
     assert any(path.endswith(('github\\repos', 'github/repos')) for path, _ in writes)
     assert commit_repos == ['active', 'pending']
+    assert metric_repos == ['active', 'pending']
     assert processed == ['active', 'pending']
 
 

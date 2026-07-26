@@ -49,10 +49,11 @@ jobs:
         run: |
           mkdir -p gh-pages
           git fetch --depth=1 origin gh-pages
-          git archive origin/gh-pages github/commitActivity | tar -x -C gh-pages
-          if git cat-file -e origin/gh-pages:github/commitActivityHashes; then
-            git archive origin/gh-pages github/commitActivityHashes | tar -x -C gh-pages
-          fi
+          for cache_path in github/commitActivity github/commitActivityHashes github/prMetrics; do
+            if git cat-file -e "origin/gh-pages:${cache_path}"; then
+              git archive origin/gh-pages "${cache_path}" | tar -x -C gh-pages
+            fi
+          done
 
       - name: Collect data
         env:

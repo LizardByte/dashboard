@@ -202,6 +202,12 @@ def test_build_end_to_end(monkeypatch, tmp_path):
     _write_json(base / 'github' / 'starHistory' / 'demo.json', [{'date': '2026-01-01', 'stars': 4}])
     _write_json(base / 'github' / 'codeScanning' / 'demo.json', {'open': 5})
     _write_json(base / 'github' / 'codeScanningHistory' / 'demo.json', [{'date': '2026-01-04', 'open': 5}])
+    pr_metric_cache = {
+        'repository': 'demo',
+        'collected_at': '2026-01-05T00:00:00+00:00',
+        'pull_requests': [],
+    }
+    _write_json(base / 'github' / 'prMetrics' / 'demo.json', pr_metric_cache)
     _write_json(base / 'readthedocs' / 'projects.json', [
         {'repository': {'url': 'https://github.com/LizardByte/demo.git'}}])
 
@@ -233,6 +239,11 @@ def test_build_end_to_end(monkeypatch, tmp_path):
     metadata = json.loads((data_dir / 'metadata.json').read_text(encoding='utf-8'))
     assert metadata['repo_count'] == 1
     assert metadata['updated_at'] == fixed_now.isoformat()
+
+    metrics = json.loads((data_dir / 'pr_metrics.json').read_text(encoding='utf-8'))
+    assert metrics == {'demo': pr_metric_cache}
+    assert 'Pull Request Metrics' in (template / 'pr-metrics' / 'index.md').read_text(encoding='utf-8')
+    assert 'PR Metrics - demo' in (template / 'pr-metrics' / 'demo.md').read_text(encoding='utf-8')
 
 
 def test_build_logs_error_when_repos_missing(monkeypatch, tmp_path):
