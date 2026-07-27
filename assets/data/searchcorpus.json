@@ -5,7 +5,7 @@
 "title"    : "PR Metrics - .github", 
 "desc"     : "PR Metrics - .github", 
 "category" : "page", 
-"url"      : "/pr-metrics/.github/", 
+"url"      : "/dashboard/pr-metrics/.github/", 
 "date"     : "January 1, 1970" 
 }, 
  
@@ -13,7 +13,7 @@
 "title"    : "PR Metrics - GameDB", 
 "desc"     : "PR Metrics - GameDB", 
 "category" : "page", 
-"url"      : "/pr-metrics/GameDB/", 
+"url"      : "/dashboard/pr-metrics/GameDB/", 
 "date"     : "January 1, 1970" 
 }, 
  
@@ -21,7 +21,7 @@
 "title"    : "PR Metrics - Koko", 
 "desc"     : "PR Metrics - Koko", 
 "category" : "page", 
-"url"      : "/pr-metrics/Koko/", 
+"url"      : "/dashboard/pr-metrics/Koko/", 
 "date"     : "January 1, 1970" 
 }, 
  
@@ -29,7 +29,7 @@
 "title"    : "PR Metrics - LizardByte.github.io", 
 "desc"     : "PR Metrics - LizardByte.github.io", 
 "category" : "page", 
-"url"      : "/pr-metrics/LizardByte.github.io/", 
+"url"      : "/dashboard/pr-metrics/LizardByte.github.io/", 
 "date"     : "January 1, 1970" 
 }, 
  
@@ -37,7 +37,7 @@
 "title"    : "PR Metrics - Moonlight-XboxOG", 
 "desc"     : "PR Metrics - Moonlight-XboxOG", 
 "category" : "page", 
-"url"      : "/pr-metrics/Moonlight-XboxOG/", 
+"url"      : "/dashboard/pr-metrics/Moonlight-XboxOG/", 
 "date"     : "January 1, 1970" 
 }, 
  
@@ -45,7 +45,7 @@
 "title"    : "PR Metrics - Sunshine", 
 "desc"     : "PR Metrics - Sunshine", 
 "category" : "page", 
-"url"      : "/pr-metrics/Sunshine/", 
+"url"      : "/dashboard/pr-metrics/Sunshine/", 
 "date"     : "January 1, 1970" 
 }, 
  
@@ -53,7 +53,7 @@
 "title"    : "PR Metrics - Themerr-jellyfin", 
 "desc"     : "PR Metrics - Themerr-jellyfin", 
 "category" : "page", 
-"url"      : "/pr-metrics/Themerr-jellyfin/", 
+"url"      : "/dashboard/pr-metrics/Themerr-jellyfin/", 
 "date"     : "January 1, 1970" 
 }, 
  
@@ -61,7 +61,7 @@
 "title"    : "PR Metrics - Themerr-plex", 
 "desc"     : "PR Metrics - Themerr-plex", 
 "category" : "page", 
-"url"      : "/pr-metrics/Themerr-plex/", 
+"url"      : "/dashboard/pr-metrics/Themerr-plex/", 
 "date"     : "January 1, 1970" 
 }, 
  
@@ -69,7 +69,7 @@
 "title"    : "PR Metrics - ThemerrDB", 
 "desc"     : "PR Metrics - ThemerrDB", 
 "category" : "page", 
-"url"      : "/pr-metrics/ThemerrDB/", 
+"url"      : "/dashboard/pr-metrics/ThemerrDB/", 
 "date"     : "January 1, 1970" 
 }, 
  
@@ -77,7 +77,7 @@
 "title"    : "PR Metrics - Virtual-Display-Driver", 
 "desc"     : "PR Metrics - Virtual-Display-Driver", 
 "category" : "page", 
-"url"      : "/pr-metrics/Virtual-Display-Driver/", 
+"url"      : "/dashboard/pr-metrics/Virtual-Display-Driver/", 
 "date"     : "January 1, 1970" 
 }, 
  
@@ -85,7 +85,7 @@
 "title"    : "PR Metrics - Virtual-Gamepad-Emulation-Client", 
 "desc"     : "PR Metrics - Virtual-Gamepad-Emulation-Client", 
 "category" : "page", 
-"url"      : "/pr-metrics/Virtual-Gamepad-Emulation-Client/", 
+"url"      : "/dashboard/pr-metrics/Virtual-Gamepad-Emulation-Client/", 
 "date"     : "January 1, 1970" 
 }, 
  
@@ -93,7 +93,7 @@
 "title"    : "PR Metrics - actions", 
 "desc"     : "PR Metrics - actions", 
 "category" : "page", 
-"url"      : "/pr-metrics/actions/", 
+"url"      : "/dashboard/pr-metrics/actions/", 
 "date"     : "January 1, 1970" 
 }, 
  
@@ -101,7 +101,7 @@
 "title"    : "PR Metrics - app-directory", 
 "desc"     : "PR Metrics - app-directory", 
 "category" : "page", 
-"url"      : "/pr-metrics/app-directory/", 
+"url"      : "/dashboard/pr-metrics/app-directory/", 
 "date"     : "January 1, 1970" 
 }, 
  
@@ -109,7 +109,7 @@
 "title"    : "PR Metrics - awesome-sunshine", 
 "desc"     : "PR Metrics - awesome-sunshine", 
 "category" : "page", 
-"url"      : "/pr-metrics/awesome-sunshine/", 
+"url"      : "/dashboard/pr-metrics/awesome-sunshine/", 
 "date"     : "January 1, 1970" 
 }, 
  
@@ -117,7 +117,7 @@
 "title"    : "PR Metrics - beautiful-jekyll-next", 
 "desc"     : "PR Metrics - beautiful-jekyll-next", 
 "category" : "page", 
-"url"      : "/pr-metrics/beautiful-jekyll-next/", 
+"url"      : "/dashboard/pr-metrics/beautiful-jekyll-next/", 
 "date"     : "January 1, 1970" 
 }, 
  
@@ -125,7 +125,7 @@
 "title"    : "PR Metrics - build-deps", 
 "desc"     : "PR Metrics - build-deps", 
 "category" : "page", 
-"url"      : "/pr-metrics/build-deps/", 
+"url"      : "/dashboard/pr-metrics/build-deps/", 
 "date"     : "January 1, 1970" 
 }, 
  
@@ -133,7 +133,7 @@
 "title"    : "PR Metrics - community", 
 "desc"     : "PR Metrics - community", 
 "category" : "page", 
-"url"      : "/pr-metrics/community/", 
+"url"      : "/dashboard/pr-metrics/community/", 
 "date"     : "January 1, 1970" 
 }, 
  
@@ -141,7 +141,7 @@
 "title"    : "PR Metrics - contribkit", 
 "desc"     : "PR Metrics - contribkit", 
 "category" : "page", 
-"url"      : "/pr-metrics/contribkit/", 
+"url"      : "/dashboard/pr-metrics/contribkit/", 
 "date"     : "January 1, 1970" 
 }, 
  
@@ -149,7 +149,7 @@
 "title"    : "PR Metrics - contributors", 
 "desc"     : "PR Metrics - contributors", 
 "category" : "page", 
-"url"      : "/pr-metrics/contributors/", 
+"url"      : "/dashboard/pr-metrics/contributors/", 
 "date"     : "January 1, 1970" 
 }, 
  
@@ -157,7 +157,7 @@
 "title"    : "PR Metrics - copr-ci", 
 "desc"     : "PR Metrics - copr-ci", 
 "category" : "page", 
-"url"      : "/pr-metrics/copr-ci/", 
+"url"      : "/dashboard/pr-metrics/copr-ci/", 
 "date"     : "January 1, 1970" 
 }, 
  
@@ -165,7 +165,7 @@
 "title"    : "PR Metrics - dashboard", 
 "desc"     : "PR Metrics - dashboard", 
 "category" : "page", 
-"url"      : "/pr-metrics/dashboard/", 
+"url"      : "/dashboard/pr-metrics/dashboard/", 
 "date"     : "January 1, 1970" 
 }, 
  
@@ -173,7 +173,7 @@
 "title"    : "PR Metrics - doxyconfig", 
 "desc"     : "PR Metrics - doxyconfig", 
 "category" : "page", 
-"url"      : "/pr-metrics/doxyconfig/", 
+"url"      : "/dashboard/pr-metrics/doxyconfig/", 
 "date"     : "January 1, 1970" 
 }, 
  
@@ -181,7 +181,7 @@
 "title"    : "PR Metrics - gamepad-helper", 
 "desc"     : "PR Metrics - gamepad-helper", 
 "category" : "page", 
-"url"      : "/pr-metrics/gamepad-helper/", 
+"url"      : "/dashboard/pr-metrics/gamepad-helper/", 
 "date"     : "January 1, 1970" 
 }, 
  
@@ -189,7 +189,7 @@
 "title"    : "PR Metrics - homebrew-homebrew", 
 "desc"     : "PR Metrics - homebrew-homebrew", 
 "category" : "page", 
-"url"      : "/pr-metrics/homebrew-homebrew/", 
+"url"      : "/dashboard/pr-metrics/homebrew-homebrew/", 
 "date"     : "January 1, 1970" 
 }, 
  
@@ -197,7 +197,7 @@
 "title"    : "PR Metrics - i18n", 
 "desc"     : "PR Metrics - i18n", 
 "category" : "page", 
-"url"      : "/pr-metrics/i18n/", 
+"url"      : "/dashboard/pr-metrics/i18n/", 
 "date"     : "January 1, 1970" 
 }, 
  
@@ -205,7 +205,7 @@
 "title"    : "Dashboard", 
 "desc"     : "Dashboard", 
 "category" : "page", 
-"url"      : "/", 
+"url"      : "/dashboard/", 
 "date"     : "January 1, 1970" 
 }, 
  
@@ -213,7 +213,7 @@
 "title"    : "Pull Request Metrics", 
 "desc"     : "Pull Request Metrics", 
 "category" : "page", 
-"url"      : "/pr-metrics/", 
+"url"      : "/dashboard/pr-metrics/", 
 "date"     : "January 1, 1970" 
 }, 
  
@@ -221,7 +221,7 @@
 "title"    : "PR Metrics - jellyfin-plugin-repo", 
 "desc"     : "PR Metrics - jellyfin-plugin-repo", 
 "category" : "page", 
-"url"      : "/pr-metrics/jellyfin-plugin-repo/", 
+"url"      : "/dashboard/pr-metrics/jellyfin-plugin-repo/", 
 "date"     : "January 1, 1970" 
 }, 
  
@@ -229,7 +229,7 @@
 "title"    : "PR Metrics - libdisplaydevice", 
 "desc"     : "PR Metrics - libdisplaydevice", 
 "category" : "page", 
-"url"      : "/pr-metrics/libdisplaydevice/", 
+"url"      : "/dashboard/pr-metrics/libdisplaydevice/", 
 "date"     : "January 1, 1970" 
 }, 
  
@@ -237,7 +237,7 @@
 "title"    : "PR Metrics - libvirtualdisplay", 
 "desc"     : "PR Metrics - libvirtualdisplay", 
 "category" : "page", 
-"url"      : "/pr-metrics/libvirtualdisplay/", 
+"url"      : "/dashboard/pr-metrics/libvirtualdisplay/", 
 "date"     : "January 1, 1970" 
 }, 
  
@@ -245,7 +245,7 @@
 "title"    : "PR Metrics - libvirtualhid", 
 "desc"     : "PR Metrics - libvirtualhid", 
 "category" : "page", 
-"url"      : "/pr-metrics/libvirtualhid/", 
+"url"      : "/dashboard/pr-metrics/libvirtualhid/", 
 "date"     : "January 1, 1970" 
 }, 
  
@@ -253,7 +253,7 @@
 "title"    : "PR Metrics - lizardbyte-common", 
 "desc"     : "PR Metrics - lizardbyte-common", 
 "category" : "page", 
-"url"      : "/pr-metrics/lizardbyte-common/", 
+"url"      : "/dashboard/pr-metrics/lizardbyte-common/", 
 "date"     : "January 1, 1970" 
 }, 
  
@@ -261,7 +261,7 @@
 "title"    : "PR Metrics - packages", 
 "desc"     : "PR Metrics - packages", 
 "category" : "page", 
-"url"      : "/pr-metrics/packages/", 
+"url"      : "/dashboard/pr-metrics/packages/", 
 "date"     : "January 1, 1970" 
 }, 
  
@@ -269,7 +269,7 @@
 "title"    : "PR Metrics - pacman-repo-builder", 
 "desc"     : "PR Metrics - pacman-repo-builder", 
 "category" : "page", 
-"url"      : "/pr-metrics/pacman-repo-builder/", 
+"url"      : "/dashboard/pr-metrics/pacman-repo-builder/", 
 "date"     : "January 1, 1970" 
 }, 
  
@@ -277,7 +277,7 @@
 "title"    : "PR Metrics - pacman-repo", 
 "desc"     : "PR Metrics - pacman-repo", 
 "category" : "page", 
-"url"      : "/pr-metrics/pacman-repo/", 
+"url"      : "/dashboard/pr-metrics/pacman-repo/", 
 "date"     : "January 1, 1970" 
 }, 
  
@@ -285,7 +285,7 @@
 "title"    : "PR Metrics - roadmap", 
 "desc"     : "PR Metrics - roadmap", 
 "category" : "page", 
-"url"      : "/pr-metrics/roadmap/", 
+"url"      : "/dashboard/pr-metrics/roadmap/", 
 "date"     : "January 1, 1970" 
 }, 
  
@@ -293,7 +293,7 @@
 "title"    : "PR Metrics - shared-web", 
 "desc"     : "PR Metrics - shared-web", 
 "category" : "page", 
-"url"      : "/pr-metrics/shared-web/", 
+"url"      : "/dashboard/pr-metrics/shared-web/", 
 "date"     : "January 1, 1970" 
 }, 
  
@@ -301,7 +301,7 @@
 "title"    : "PR Metrics - support-bot-commands", 
 "desc"     : "PR Metrics - support-bot-commands", 
 "category" : "page", 
-"url"      : "/pr-metrics/support-bot-commands/", 
+"url"      : "/dashboard/pr-metrics/support-bot-commands/", 
 "date"     : "January 1, 1970" 
 }, 
  
@@ -309,7 +309,7 @@
 "title"    : "PR Metrics - support-bot", 
 "desc"     : "PR Metrics - support-bot", 
 "category" : "page", 
-"url"      : "/pr-metrics/support-bot/", 
+"url"      : "/dashboard/pr-metrics/support-bot/", 
 "date"     : "January 1, 1970" 
 }, 
  
@@ -317,7 +317,7 @@
 "title"    : "Blog Index", 
 "desc"     : "Blog Index", 
 "category" : "page", 
-"url"      : "/tags/", 
+"url"      : "/dashboard/tags/", 
 "date"     : "January 1, 1970" 
 }, 
  
@@ -325,7 +325,7 @@
 "title"    : "PR Metrics - template-base", 
 "desc"     : "PR Metrics - template-base", 
 "category" : "page", 
-"url"      : "/pr-metrics/template-base/", 
+"url"      : "/dashboard/pr-metrics/template-base/", 
 "date"     : "January 1, 1970" 
 }, 
  
@@ -333,7 +333,7 @@
 "title"    : "PR Metrics - tray", 
 "desc"     : "PR Metrics - tray", 
 "category" : "page", 
-"url"      : "/pr-metrics/tray/", 
+"url"      : "/dashboard/pr-metrics/tray/", 
 "date"     : "January 1, 1970" 
 } 
  
