@@ -104,3 +104,4 @@ jobs:
       extract_archive: 'build.zip'
       target_branch: 'gh-pages'
       clean_gh_pages: true
+      base_url: '_auto'
