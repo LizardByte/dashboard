@@ -1,1 +1,1 @@
-[]
+[{"number": 110, "title": "chore(deps): lock file maintenance", "author": "renovate[bot]", "labels": ["dependencies", "js"], "assignees": [], "created_at": "2026-07-27T06:28:43+00:00", "updated_at": "2026-07-27T06:29:51+00:00", "draft": false, "milestone": null}, {"number": 109, "title": "chore(deps): update dependency globals to v17.8.0", "author": "renovate[bot]", "labels": ["dependencies", "js"], "assignees": [], "created_at": "2026-07-27T06:28:07+00:00", "updated_at": "2026-07-27T06:29:09+00:00", "draft": false, "milestone": null}]
