@@ -16,6 +16,7 @@ import unhandled_exit
 # local imports
 from src import BASE_DIR
 from src import helpers
+from src import pr_metrics
 from src.logger import log
 
 COMMIT_ACTIVITY_READY = 'ready'
@@ -743,6 +744,25 @@ def _collect_open_pulls(repo) -> list[dict]:
     return pulls_data
 
 
+def _collect_pr_metrics(repos: list, headers: dict) -> None:
+    """Refresh cached pull-request metrics for active dashboard repositories."""
+    for repo in tqdm(
+            iterable=repos,
+            desc='Collecting GitHub PR metrics',
+    ):
+        _run_github_repo_step(
+            repo,
+            'PR metrics',
+            lambda current_repo=repo: pr_metrics.refresh_repository(
+                current_repo,
+                BASE_DIR,
+                headers,
+                helpers.s,
+            ),
+            timeout=180,
+        )
+
+
 def _is_pull_request_issue(issue) -> bool:
     """
     Return whether a GitHub issue object represents a pull request.
@@ -981,6 +1001,8 @@ def update_github():
 
     active_repos = [repo for repo in repos if not repo.archived]
     _collect_commit_activity(active_repos, headers)
+    metric_repos = [repo for repo in active_repos if pr_metrics.is_active_repo(repo.raw_data)]
+    _collect_pr_metrics(metric_repos, headers)
 
     for repo in tqdm(
             iterable=active_repos,
