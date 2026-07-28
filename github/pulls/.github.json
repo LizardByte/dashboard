@@ -1,1 +1,1 @@
-[{"number": 820, "title": "chore(deps): update docker/login-action action to v4.5.2", "author": "renovate[bot]", "labels": ["dependencies", "ci"], "assignees": [], "created_at": "2026-07-28T11:00:27+00:00", "updated_at": "2026-07-28T11:01:00+00:00", "draft": false, "milestone": null}, {"number": 819, "title": "chore(deps): update dependency renovate to v43.285.3", "author": "renovate[bot]", "labels": ["dependencies", "js"], "assignees": [], "created_at": "2026-07-28T05:44:03+00:00", "updated_at": "2026-07-28T05:44:44+00:00", "draft": false, "milestone": null}]
+[]
