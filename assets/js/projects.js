@@ -5,7 +5,7 @@ let container
 let org_name = "LizardByte"
 let base_url = `https://app.${org_name.toLowerCase()}.dev`
 let cache_repo = "dashboard"
-let shared_web_url = "https://cdn.jsdelivr.net/npm/@lizardbyte/shared-web@v2026.726.204939"
+let shared_web_url = "https://cdn.jsdelivr.net/npm/@lizardbyte/shared-web@2026.812.190302"
 
 
 function onDocumentReady(callback) {
