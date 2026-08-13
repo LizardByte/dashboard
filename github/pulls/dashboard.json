@@ -1,1 +1,1 @@
-[]
+[{"number": 316, "title": "chore(deps): update dependency plotly.js to v3.4.0", "author": "renovate[bot]", "labels": ["dependencies", "custom"], "assignees": [], "created_at": "2026-08-13T07:40:40+00:00", "updated_at": "2026-08-13T07:51:26+00:00", "draft": false, "milestone": null}, {"number": 315, "title": "chore(deps): update dependency globals to v17.11.0", "author": "renovate[bot]", "labels": ["dependencies", "js"], "assignees": [], "created_at": "2026-08-13T07:40:30+00:00", "updated_at": "2026-08-13T07:51:27+00:00", "draft": false, "milestone": null}]
