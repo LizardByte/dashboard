@@ -1,10 +1,15 @@
-function createDPadButtonVisuals(centerX, centerY) {
-    return [
-        { index: 12, tag: 'rect', attributes: { x: centerX - 50, y: centerY - 150, width: 100, height: 115, rx: 18 } },
-        { index: 13, tag: 'rect', attributes: { x: centerX - 50, y: centerY + 40, width: 100, height: 115, rx: 18 } },
-        { index: 14, tag: 'rect', attributes: { x: centerX - 155, y: centerY - 50, width: 115, height: 100, rx: 18 } },
-        { index: 15, tag: 'rect', attributes: { x: centerX + 40, y: centerY - 50, width: 115, height: 100, rx: 18 } }
-    ];
+function createDPadButtonVisuals(shapes) {
+    return shapes.map((shape, index) => ({
+        index: index + 12,
+        ...shape
+    }));
+}
+
+const FIREFOX_SWITCH_GAMEPAD_FIXED_VERSION = 155;
+
+function getFirefoxMajorVersion(userAgent) {
+    const match = /\bFirefox\/(\d+)/.exec(userAgent);
+    return match ? Number.parseInt(match[1], 10) : null;
 }
 
 document.addEventListener('DOMContentLoaded', function() {
@@ -19,6 +24,8 @@ document.addEventListener('DOMContentLoaded', function() {
     const gamepadTester = document.getElementById('GamepadTester');
     const gamepadStatus = document.getElementById('gamepad-status');
     const gamepadStatusMessage = document.getElementById('gamepad-status-message');
+    const firefoxSwitchWarning = document.getElementById('firefox-switch-warning');
+    const firefoxMajorVersion = getFirefoxMajorVersion(navigator.userAgent);
     let gamepadVisualButtons = new Map();
     let gamepadVisualSticks = [];
     let gamepadVisualTriggers = new Map();
@@ -43,7 +50,12 @@ document.addEventListener('DOMContentLoaded', function() {
                 { index: 9, tag: 'circle', attributes: { cx: 2173, cy: 808, r: 52 } },
                 { index: 10, tag: 'circle', attributes: { cx: 1602, cy: 816, r: 105 } },
                 { index: 11, tag: 'circle', attributes: { cx: 2276, cy: 1073, r: 105 } },
-                ...createDPadButtonVisuals(1816, 1091),
+                ...createDPadButtonVisuals([
+                    { tag: 'rect', attributes: { x: 1771, y: 964, width: 92, height: 82, rx: 13 } },
+                    { tag: 'rect', attributes: { x: 1771, y: 1139, width: 92, height: 82, rx: 13 } },
+                    { tag: 'rect', attributes: { x: 1692, y: 1046, width: 79, height: 93, rx: 13 } },
+                    { tag: 'rect', attributes: { x: 1863, y: 1046, width: 82, height: 93, rx: 13 } }
+                ]),
                 { index: 16, tag: 'circle', attributes: { cx: 2049, cy: 637, r: 65 } }
             ],
             sticks: [
@@ -68,9 +80,14 @@ document.addEventListener('DOMContentLoaded', function() {
                 { index: 9, tag: 'rect', attributes: { x: 2470, y: 530, width: 80, height: 145, rx: 35, transform: 'rotate(8 2510 602)' } },
                 { index: 10, tag: 'circle', attributes: { cx: 1724, cy: 1094, r: 115 } },
                 { index: 11, tag: 'circle', attributes: { cx: 2370, cy: 1093, r: 115 } },
-                ...createDPadButtonVisuals(1425, 819),
+                ...createDPadButtonVisuals([
+                    { tag: 'path', attributes: { d: 'M1449.18,658.32s-11.48-1.24-24-1.24-24,1.24-24,1.24-26.51,1.17-28.49,23.66l1.59,48.59a24.8,24.8,0,0,0,5.44,14.73l35,38.58a6.74,6.74,0,0,0,4.16,2.45,40.6,40.6,0,0,0,6.35.53,41.32,41.32,0,0,0,7.07-.67,4.91,4.91,0,0,0,3-1.79l34.52-38a28.88,28.88,0,0,0,6.33-17.17l1.55-47.22C1475.15,659.49,1449.18,658.32,1449.18,658.32Z' } },
+                    { tag: 'path', attributes: { d: 'M1401.18,976.94s11.47,1.25,24,1.25,24-1.25,24-1.25,26.5-1.17,28.48-23.65l-1.59-48.6a24.79,24.79,0,0,0-5.43-14.73l-35-38.58a6.68,6.68,0,0,0-4.16-2.44,39.28,39.28,0,0,0-6.34-.53,41.49,41.49,0,0,0-7.08.66,5,5,0,0,0-3,1.79l-34.51,38a28.85,28.85,0,0,0-6.34,17.17l-1.55,47.23C1375.2,975.77,1401.18,976.94,1401.18,976.94Z' } },
+                    { tag: 'path', attributes: { d: 'M1265.87,793.63s-1.25,11.48-1.25,24,1.25,24,1.25,24,1.17,26.51,23.65,28.49l48.6-1.6a24.73,24.73,0,0,0,14.73-5.43l38.58-35a6.68,6.68,0,0,0,2.44-4.16,39.42,39.42,0,0,0,.53-6.35,41.46,41.46,0,0,0-.66-7.07,5.06,5.06,0,0,0-1.79-3l-38-34.51a28.87,28.87,0,0,0-17.18-6.33l-47.22-1.55C1267,767.65,1265.87,793.63,1265.87,793.63Z' } },
+                    { tag: 'path', attributes: { d: 'M1584.48,841.63s1.25-11.47,1.25-24-1.25-24-1.25-24-1.17-26.5-23.65-28.48l-48.6,1.59a24.79,24.79,0,0,0-14.72,5.43l-38.59,35a6.77,6.77,0,0,0-2.44,4.16,39.28,39.28,0,0,0-.53,6.34,41.21,41.21,0,0,0,.67,7.07,5,5,0,0,0,1.78,3l38,34.51a28.94,28.94,0,0,0,17.18,6.34l47.22,1.55C1583.31,867.61,1584.48,841.63,1584.48,841.63Z' } }
+                ]),
                 { index: 16, tag: 'circle', attributes: { cx: 2048, cy: 1094, r: 70 } },
-                { index: 17, tag: 'rect', attributes: { x: 1650, y: 465, width: 795, height: 480, rx: 80 } }
+                { index: 17, tag: 'path', attributes: { d: 'M2446.36,528.91l-.06-.3c.6-17-2.64-40.77-23.6-49.54-7.28-3.05-28.57-5.62-57.54-7.79-96.28-9.84-316.91-10.41-316.91-10.41h-.45s-220.63.57-316.91,10.41c-29,2.17-50.27,4.74-57.54,7.79-21,8.77-24.2,32.57-23.6,49.54,0,.1,0,.2-.07.3l.1.48a105.85,105.85,0,0,0,2.21,17.72l52.22,255.56q1.63,5.87,3.63,11.19A112,112,0,0,0,1718,834.93a106.93,106.93,0,0,0,26,29.1,110.63,110.63,0,0,0,34.7,18.12,119.88,119.88,0,0,0,15.93,4c2.53.46,5.11.87,7.78,1.21h491.27c2.66-.34,5.25-.75,7.78-1.21a119.88,119.88,0,0,0,15.93-4,110.63,110.63,0,0,0,34.7-18.12,106.74,106.74,0,0,0,26-29.1,111.54,111.54,0,0,0,10.17-21.07c1.32-3.55,2.54-7.28,3.63-11.19l52.22-255.56a105.85,105.85,0,0,0,2.21-17.72Z' } }
             ],
             sticks: [
                 { buttonIndex: 10, axes: [0, 1], x: 1724, y: 1094, range: 85 },
@@ -94,7 +111,12 @@ document.addEventListener('DOMContentLoaded', function() {
                 { index: 9, tag: 'circle', attributes: { cx: 2260, cy: 711, r: 50 } },
                 { index: 10, tag: 'circle', attributes: { cx: 1578, cy: 841, r: 105 } },
                 { index: 11, tag: 'circle', attributes: { cx: 2275, cy: 1072, r: 105 } },
-                ...createDPadButtonVisuals(1785, 1072),
+                ...createDPadButtonVisuals([
+                    { tag: 'rect', attributes: { x: 1741, y: 950, width: 87, height: 83, rx: 17 } },
+                    { tag: 'rect', attributes: { x: 1741, y: 1120, width: 87, height: 83, rx: 17 } },
+                    { tag: 'rect', attributes: { x: 1658, y: 1033, width: 83, height: 87, rx: 17 } },
+                    { tag: 'rect', attributes: { x: 1828, y: 1033, width: 83, height: 87, rx: 17 } }
+                ]),
                 { index: 16, tag: 'circle', attributes: { cx: 2172, cy: 841, r: 55 } },
                 { index: 17, tag: 'rect', attributes: { x: 1876, y: 791, width: 105, height: 105, rx: 18 } }
             ],
@@ -192,7 +214,15 @@ document.addEventListener('DOMContentLoaded', function() {
 
         const gamepadIndices = Object.keys(gamepads);
         const hasGamepads = gamepadIndices.length > 0;
+        const hasNintendoSwitchController = Object.values(gamepads).some(gamepad =>
+            gamepadHelper.detectControllerType(gamepad.id) === gamepadHelper.CONTROLLER_TYPES.SWITCH
+        );
         gamepadTester.classList.toggle('has-gamepad', hasGamepads);
+        firefoxSwitchWarning.hidden = !(
+            firefoxMajorVersion !== null
+            && firefoxMajorVersion < FIREFOX_SWITCH_GAMEPAD_FIXED_VERSION
+            && hasNintendoSwitchController
+        );
 
         if (hasGamepads) {
             gamepadSelectorContainer.style.removeProperty('display');
@@ -498,19 +528,28 @@ document.addEventListener('DOMContentLoaded', function() {
         gamepadStatus.classList.add(`alert-${resolvedStatus}`);
     }
 
+    function updateTextContent(elementId, value) {
+        const element = document.getElementById(elementId);
+        const text = String(value);
+
+        if (element.textContent !== text) {
+            element.textContent = text;
+        }
+    }
+
     // Update the gamepad info function to include vibration status
     function updateGamepadInfo(gamepad) {
         const gamepadInfo = gamepadHelper.getGamepadInfo(gamepad.id);
         const vibrationCapabilities = gamepadHelper.getVibrationCapabilities(gamepad);
 
-        document.getElementById('gamepad-id').textContent = gamepad.id;
-        document.getElementById('gamepad-index').textContent = gamepad.index;
-        document.getElementById('gamepad-connected').textContent = gamepad.connected;
-        document.getElementById('gamepad-mapping').textContent = gamepad.mapping || 'No mapping';
-        document.getElementById('gamepad-buttons-count').textContent = gamepad.buttons.length;
-        document.getElementById('gamepad-axes-count').textContent = gamepad.axes.length;
-        document.getElementById('gamepad-type').textContent = gamepadInfo.type;
-        document.getElementById('gamepad-name').textContent = gamepadInfo.name;
+        updateTextContent('gamepad-id', gamepad.id);
+        updateTextContent('gamepad-index', gamepad.index);
+        updateTextContent('gamepad-connected', gamepad.connected);
+        updateTextContent('gamepad-mapping', gamepad.mapping || 'No mapping');
+        updateTextContent('gamepad-buttons-count', gamepad.buttons.length);
+        updateTextContent('gamepad-axes-count', gamepad.axes.length);
+        updateTextContent('gamepad-type', gamepadInfo.type);
+        updateTextContent('gamepad-name', gamepadInfo.name);
 
         // Update vibration controls based on capabilities
         updateVibrationControls(vibrationCapabilities);
