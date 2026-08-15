@@ -1,1 +1,1 @@
-[]
+[{"number": 291, "title": "chore(deps): update astral-sh/setup-uv action to v10.0.1", "author": "renovate[bot]", "labels": ["dependencies", "ci"], "assignees": [], "created_at": "2026-08-15T05:58:04+00:00", "updated_at": "2026-08-15T06:08:17+00:00", "draft": false, "milestone": null}]
