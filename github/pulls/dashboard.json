@@ -1,1 +1,1 @@
-[]
+[{"number": 323, "title": "chore(deps): update dependency pygithub to v2.10.0", "author": "renovate[bot]", "labels": ["dependencies", "python"], "assignees": [], "created_at": "2026-08-21T06:55:10+00:00", "updated_at": "2026-08-21T07:07:39+00:00", "draft": false, "milestone": null}]
