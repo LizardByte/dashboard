@@ -1,1 +1,1 @@
-[]
+[{"number": 858, "title": "chore(deps): update dependency renovate to v44.39.1", "author": "renovate[bot]", "labels": ["dependencies", "js"], "assignees": [], "created_at": "2026-08-22T05:35:39+00:00", "updated_at": "2026-08-22T05:36:08+00:00", "draft": false, "milestone": null}, {"number": 857, "title": "chore(deps): update github/codeql-action action to v4.37.8", "author": "renovate[bot]", "labels": ["dependencies", "ci"], "assignees": [], "created_at": "2026-08-22T05:35:22+00:00", "updated_at": "2026-08-22T05:36:13+00:00", "draft": false, "milestone": null}]
