@@ -44,7 +44,7 @@ jobs:
       - name: Install Python Dependencies
         env:
           UV_PYTHON: ${{ steps.setup-python.outputs.python-path }}
-        run: uv sync --locked
+        run: uv sync --locked --no-build --no-install-project
 
       - name: Install Node Dependencies
         shell: bash
@@ -52,7 +52,7 @@ jobs:
 
       - name: Test with pytest
         id: pytest
-        run: uv run --locked pytest
+        run: uv run --locked --no-build --no-sync pytest
 
       - name: Test with Jest
         id: jest
