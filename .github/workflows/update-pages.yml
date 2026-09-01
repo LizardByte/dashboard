@@ -42,7 +42,7 @@ jobs:
       - name: Install Python dependencies
         env:
           UV_PYTHON: ${{ steps.setup-python.outputs.python-path }}
-        run: uv sync --locked --no-dev
+        run: uv sync --locked --no-build --no-dev --no-install-project
 
       - name: Restore generated data cache
         shell: bash
@@ -68,14 +68,14 @@ jobs:
           PATREON_CAMPAIGN_ID: 6131567
           READTHEDOCS_TOKEN: ${{ secrets.READTHEDOCS_TOKEN }}
           THREADING_EXCEPTION_HANDLER: "true"
-        run: uv run --locked --no-dev python -u -m src.updater
+        run: uv run --locked --no-build --no-dev --no-sync python -u -m src.updater
 
       - name: Cat log
         if: always()
         run: cat ./logs/updater.log
 
       - name: Build dashboard data
-        run: uv run --locked --no-dev python -u -m src.builder
+        run: uv run --locked --no-build --no-dev --no-sync python -u -m src.builder
 
       - name: Prepare Artifacts  # uploading artifacts will fail if not zipped due to very large quantity of files
         shell: bash
