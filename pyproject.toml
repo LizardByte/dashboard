@@ -18,7 +18,7 @@ dependencies = [
     "pygithub==2.10.0",
     "python-dotenv==1.2.3",
     "requests==2.34.2",
-    "tqdm==4.70.0",
+    "tqdm==4.70.1",
     "unhandled_exit==1.0.0",
 ]
 
