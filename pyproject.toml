@@ -16,7 +16,7 @@ dependencies = [
     "cloudscraper==1.2.71",
     "pillow==12.3.0",
     "pygithub==2.10.0",
-    "python-dotenv==1.2.3",
+    "python-dotenv==1.2.4",
     "requests==2.34.2",
     "tqdm==4.70.1",
     "unhandled_exit==1.0.0",
