@@ -129,9 +129,8 @@ def _fetch_metrics(resource_id: str, token: str, start: datetime, end: datetime)
     return response.json()
 
 
-def _daily_counts(payload: dict, start: datetime, end: datetime) -> dict:
-    """Sum samples by UTC day; absent telemetry remains unknown rather than zero."""
-    days = dict.fromkeys(_dates(start, end))
+def _metric_points(payload: dict):
+    """Yield samples from successful signing metrics."""
     metrics = [metric for metric in payload['value'] if metric['name']['value'] == 'SignCompleted']
     if not metrics:
         raise ValueError('Signing metric missing from response')
@@ -139,21 +138,35 @@ def _daily_counts(payload: dict, start: datetime, end: datetime) -> dict:
         if metric.get('errorCode', 'Success') != 'Success':
             raise ValueError('Azure reported a metric error')
         for series in metric['timeseries']:
-            for point in series['data']:
-                total = point.get('total')
-                if total is None:
-                    continue
-                if isinstance(total, bool) or not isinstance(total, (int, float)):
-                    raise ValueError('Invalid signing count')
-                if not math.isfinite(total) or total < 0 or not float(total).is_integer():
-                    raise ValueError('Invalid signing count')
-                timestamp = datetime.fromisoformat(point['timeStamp'])
-                if timestamp.tzinfo is None:
-                    raise ValueError('Metric timestamp must include a timezone')
-                timestamp = timestamp.astimezone(timezone.utc)
-                if start <= timestamp < end:
-                    date = timestamp.date().isoformat()
-                    days[date] = (days[date] or 0) + int(total)
+            yield from series['data']
+
+
+def _signing_sample(point: dict, start: datetime, end: datetime) -> tuple[str, int] | None:
+    """Validate a known count and return its UTC date within the requested window."""
+    total = point.get('total')
+    if total is None:
+        return None
+    if isinstance(total, bool) or not isinstance(total, (int, float)):
+        raise ValueError('Invalid signing count')
+    if not math.isfinite(total) or total < 0 or not float(total).is_integer():
+        raise ValueError('Invalid signing count')
+    timestamp = datetime.fromisoformat(point['timeStamp'])
+    if timestamp.tzinfo is None:
+        raise ValueError('Metric timestamp must include a timezone')
+    timestamp = timestamp.astimezone(timezone.utc)
+    if start <= timestamp < end:
+        return timestamp.date().isoformat(), int(total)
+    return None
+
+
+def _daily_counts(payload: dict, start: datetime, end: datetime) -> dict:
+    """Sum samples by UTC day; absent telemetry remains unknown rather than zero."""
+    days = dict.fromkeys(_dates(start, end))
+    for point in _metric_points(payload):
+        sample = _signing_sample(point, start, end)
+        if sample is not None:
+            date, total = sample
+            days[date] = (days[date] or 0) + total
     return days
 
 
@@ -187,6 +200,22 @@ def _collect(cache: dict, resource_id: str, now: datetime) -> dict:
     }
 
 
+def _validate_configuration(resource_id: str) -> None:
+    """Require a signing account resource ID and credentials before collecting."""
+    if not RESOURCE_ID_PATTERN.fullmatch(resource_id):
+        raise ValueError('Invalid Artifact Signing resource ID')
+    if not all(os.getenv(key) for key in ('AZURE_TENANT_ID', 'AZURE_CLIENT_ID', 'AZURE_CLIENT_SECRET')):
+        raise ValueError('Azure credentials are missing')
+
+
+def _attempt_is_recent(cache: dict, now: datetime) -> bool:
+    """Throttle successful and failed attempts within the refresh interval."""
+    if not cache.get('attempted_at'):
+        return False
+    attempted_at = datetime.fromisoformat(cache['attempted_at'])
+    return timedelta(0) <= now - attempted_at < REFRESH_INTERVAL
+
+
 def update(base_dir: str) -> None:
     """Refresh optional metrics; preserve successful data and throttle every attempt."""
     resource_id = os.getenv(RESOURCE_ID_ENV, '').strip().rstrip('/')
@@ -199,14 +228,9 @@ def update(base_dir: str) -> None:
         if cache.get('resource_hash') != resource_hash:
             cache = {'status': 'disabled', 'daily': []}
         try:
-            if not RESOURCE_ID_PATTERN.fullmatch(resource_id):
-                raise ValueError('Invalid Artifact Signing resource ID')
-            if not all(os.getenv(key) for key in ('AZURE_TENANT_ID', 'AZURE_CLIENT_ID', 'AZURE_CLIENT_SECRET')):
-                raise ValueError('Azure credentials are missing')
-            if cache.get('attempted_at'):
-                attempted_at = datetime.fromisoformat(cache['attempted_at'])
-                if timedelta(0) <= now - attempted_at < REFRESH_INTERVAL:
-                    return
+            _validate_configuration(resource_id)
+            if _attempt_is_recent(cache, now):
+                return
             data = _collect(cache, resource_id, now)
         except (requests.RequestException, ValueError, KeyError, TypeError):
             data = {**cache, 'status': 'error'}

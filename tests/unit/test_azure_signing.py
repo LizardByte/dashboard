@@ -134,14 +134,17 @@ def test_daily_counts_adjusted_grain_timezone_and_unknown_samples():
 
 @pytest.mark.parametrize('count', [True, '3', float('nan'), float('inf'), -1, 0.5])
 def test_invalid_count_is_rejected(count):
+    data = payload(point('2026-10-07T00:00:00Z', count))
+    start = NOW - timedelta(days=1)
     with pytest.raises(ValueError, match='Invalid signing count'):
-        signing._daily_counts(payload(point('2026-10-07T00:00:00Z', count)), NOW - timedelta(days=1), NOW)
+        signing._daily_counts(data, start, NOW)
 
 
 def test_unavailable_or_malformed_metrics_are_not_finalized():
+    start = NOW - timedelta(days=1)
     for data in ({'value': []}, payload(error='Error'), payload(point('2026-10-07T00:00:00', 1))):
         with pytest.raises(ValueError):
-            signing._daily_counts(data, NOW - timedelta(days=1), NOW)
+            signing._daily_counts(data, start, NOW)
 
 
 def test_http_contract_and_no_credential_disclosure(requests_mock, configured):
