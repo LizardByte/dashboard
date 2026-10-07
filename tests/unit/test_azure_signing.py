@@ -65,6 +65,32 @@ def test_disabled_and_invalid_cache(tmp_path, monkeypatch):
     assert json.loads(path.read_text()) == {'status': 'disabled', 'daily': []}
 
 
+@pytest.mark.parametrize('has_cache', [False, True])
+def test_cache_only_preview_preserves_data_without_requests(
+        tmp_path, monkeypatch, configured, requests_mock, has_cache):
+    monkeypatch.setenv('DASHBOARD_AZURE_SIGNING_CACHE_ONLY', 'true')
+    path = tmp_path / 'azure' / 'signing.json'
+    if has_cache:
+        write_cache(tmp_path, {
+            'status': 'ready', 'resource_hash': hashlib.sha256(RESOURCE.lower().encode()).hexdigest(),
+            'collected_at': (NOW - timedelta(days=1)).isoformat(),
+            'attempted_at': (NOW - timedelta(days=1)).isoformat(),
+            'daily': [{'date': '2026-10-06', 'completed': 7}],
+            'finalized_dates': ['2026-10-06'],
+        })
+        original = path.read_bytes()
+
+    signing.update(str(tmp_path))
+
+    assert requests_mock.call_count == 0
+    if has_cache:
+        assert path.read_bytes() == original
+        assert signing.load_data(str(tmp_path))['daily'] == [{'date': '2026-10-06', 'completed': 7}]
+    else:
+        assert not path.exists()
+        assert signing.load_data(str(tmp_path)) == {'status': 'disabled', 'daily': []}
+
+
 def test_public_totals_and_partial_history(tmp_path):
     write_cache(tmp_path, {
         'status': 'ready', 'resource_hash': 'private-cache-key', 'finalized_dates': ['2026-09-30'],

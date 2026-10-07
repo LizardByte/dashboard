@@ -57,6 +57,7 @@ jobs:
 
       - name: Collect data
         env:
+          DASHBOARD_AZURE_SIGNING_CACHE_ONLY: ${{ github.event_name == 'pull_request' }}
           AZURE_SIGNING_RESOURCE_ID: ${{ secrets.AZURE_SIGNING_RESOURCE_ID }}
           AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
           AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}

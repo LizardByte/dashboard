@@ -218,6 +218,8 @@ def _attempt_is_recent(cache: dict, now: datetime) -> bool:
 
 def update(base_dir: str) -> None:
     """Refresh optional metrics; preserve successful data and throttle every attempt."""
+    if os.getenv('DASHBOARD_AZURE_SIGNING_CACHE_ONLY') == 'true':
+        return
     resource_id = os.getenv(RESOURCE_ID_ENV, '').strip().rstrip('/')
     cache = _load_cache(base_dir)
     now = datetime.now(timezone.utc)

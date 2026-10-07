@@ -41,6 +41,9 @@ partial month and 30-day totals are labeled while history fills in.
 The scheduled job runs eight times per day: one metric query per update when caught up, or at
 most two while backfilling (at most 496 queries in a 31-day month for one account). Site visitors
 read the generated JSON and never query Azure.
+Pull-request builds use only the Azure data restored from the published `gh-pages` cache and make
+no Azure API calls, even when signing secrets are available. Their preview displays cached counts
+when available; without published Azure data, the section stays hidden.
 No diagnostic settings, Azure Storage, Log Analytics, Event Hubs, custom metrics, or Azure alerts
 are created or required.
 
