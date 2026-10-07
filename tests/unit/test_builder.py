@@ -242,6 +242,18 @@ def test_build_end_to_end(monkeypatch, tmp_path):
 
     metrics = json.loads((data_dir / 'pr_metrics.json').read_text(encoding='utf-8'))
     assert metrics == {'demo': pr_metric_cache}
+    assert json.loads((data_dir / 'azure_signing.json').read_text()) == {'status': 'disabled', 'daily': []}
+    _write_json(base / 'azure' / 'signing.json', {
+        'status': 'ready', 'collected_at': fixed_now.isoformat(),
+        'resource_hash': 'internal-cache-state', 'finalized_dates': ['2026-01-04'],
+        'daily': [{'date': '2026-01-04', 'completed': 8}],
+    })
+    builder.build()
+    signing = json.loads((data_dir / 'azure_signing.json').read_text())
+    assert signing['month_to_date'] == 8
+    assert not signing['month_to_date_complete']
+    assert 'resource_hash' not in signing
+    assert 'finalized_dates' not in signing
     assert 'Pull Request Metrics' in (template / 'pr-metrics' / 'index.md').read_text(encoding='utf-8')
     assert 'PR Metrics - demo' in (template / 'pr-metrics' / 'demo.md').read_text(encoding='utf-8')
 

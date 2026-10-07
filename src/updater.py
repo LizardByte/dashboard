@@ -17,6 +17,7 @@ import unhandled_exit
 from src import BASE_DIR
 from src import helpers
 from src import pr_metrics
+from src import azure_signing
 from src.logger import log
 
 COMMIT_ACTIVITY_READY = 'ready'
@@ -1114,6 +1115,7 @@ def append_thread_if_env_set(
 def update():
     # Threads that are fully independent of each other and of GitHub data.
     independent_threads = []
+    independent_threads.append(Thread(name='azure-signing', target=azure_signing.update, kwargs={'base_dir': BASE_DIR}))
 
     append_thread_if_env_set(
         env_vars=['DASHBOARD_AUR_REPOS'],

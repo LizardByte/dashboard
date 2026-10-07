@@ -49,7 +49,7 @@ jobs:
         run: |
           mkdir -p gh-pages
           git fetch --depth=1 origin gh-pages
-          for cache_path in github/commitActivity github/commitActivityHashes github/prMetrics; do
+          for cache_path in github/commitActivity github/commitActivityHashes github/prMetrics azure; do
             if git cat-file -e "origin/gh-pages:${cache_path}"; then
               git archive origin/gh-pages "${cache_path}" | tar -x -C gh-pages
             fi
@@ -57,6 +57,10 @@ jobs:
 
       - name: Collect data
         env:
+          AZURE_SIGNING_RESOURCE_ID: ${{ secrets.AZURE_SIGNING_RESOURCE_ID }}
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
           DASHBOARD_AUR_REPOS: sunshine,sunshine-bin,sunshine-git
           CODECOV_TOKEN: ${{ secrets.CODECOV_API_TOKEN }}
           DISCORD_INVITE: ${{ secrets.DISCORD_INVITE }}

@@ -765,8 +765,10 @@ def test_append_thread_if_env_set_and_update(monkeypatch):
     updater.update()
 
     assert 'github' in started
+    assert 'azure-signing' in started
     assert 'codecov' in started
     assert 'github' in joined
+    assert 'azure-signing' in joined
     assert 'codecov' in joined
     assert 'activate' in started
     assert 'deactivate' in joined
