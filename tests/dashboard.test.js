@@ -26,6 +26,12 @@ function buildDom() {
         <div id="chart-commit-activity-weekly"></div>
         <div id="chart-commit-activity-repos"></div>
         <div id="chart-docs"></div>
+        <div id="azure-signing-nav" hidden></div>
+        <section id="azure-signing" hidden>
+          <p id="azure-signing-status"></p>
+          <div id="azure-signing-summary"></div>
+          <div id="chart-azure-signing"></div>
+        </section>
     `;
 }
 
@@ -279,6 +285,44 @@ describe('dashboard.js', () => {
         expect(globalThis.Plotly.newPlot).toHaveBeenCalled();
     });
 
+    test('renderAzureSigning hides unconfigured metrics and tolerates missing containers', () => {
+        mod.renderAzureSigning(null);
+        expect(document.getElementById('azure-signing').hidden).toBe(true);
+        mod.renderAzureSigning({ status: 'disabled', daily: [] });
+        document.getElementById('azure-signing-nav').remove();
+        mod.renderAzureSigning(null);
+        document.getElementById('azure-signing').remove();
+        mod.renderAzureSigning(null);
+        expect(globalThis.Plotly.newPlot).not.toHaveBeenCalled();
+    });
+
+    test('renderAzureSigning distinguishes unknown data, zero usage, and partial history', () => {
+        mod.renderAzureSigning({ status: 'ready', daily: [{ date: '2026-10-01', completed: null }] });
+        expect(document.getElementById('azure-signing-status').textContent).toContain('has not reported');
+        expect(document.getElementById('chart-azure-signing').hidden).toBe(true);
+        mod.renderAzureSigning({ status: 'error', daily: [] });
+        expect(document.getElementById('azure-signing-status').textContent).toContain('temporarily unavailable');
+        const data = {
+            status: 'ready', collected_at: '2026-10-01T12:00:00Z',
+            daily: [{ date: '2026-10-01', completed: 0 }],
+            month_to_date: 0, last_30_days: null,
+            month_to_date_complete: true, last_30_days_complete: false,
+        };
+        mod.renderAzureSigning(data);
+        expect(document.getElementById('azure-signing').hidden).toBe(false);
+        expect(document.getElementById('azure-signing-nav').hidden).toBe(false);
+        expect(document.getElementById('chart-azure-signing').hidden).toBe(false);
+        expect(document.getElementById('azure-signing-summary').textContent).toContain('Unavailable');
+        expect(globalThis.Plotly.newPlot.mock.calls[0][1][0].y).toEqual([0]);
+        data.status = 'error';
+        data.month_to_date_complete = false;
+        data.last_30_days_complete = true;
+        mod.renderAzureSigning(data);
+        expect(document.getElementById('azure-signing-status').textContent).toContain('could not be refreshed');
+        expect(document.querySelectorAll('#azure-signing-summary h3')).toHaveLength(2);
+        expect(document.getElementById('azure-signing-summary').textContent).toContain('partial history');
+    });
+
     test('renderCoverageChart handles empty and non-empty', () => {
         mod.renderCoverageChart([{ name: 'x', coverage: 0 }]);
         expect(globalThis.Plotly.newPlot).toHaveBeenCalledTimes(0);
@@ -348,6 +392,12 @@ describe('dashboard.js', () => {
         const commits = [{ repo: 'repo-a', week: '2026-01-01', total: 1 }];
         const stars = [{ repo: 'repo-a', date: '2026-01-01', stars: 3 }];
         const codeScanningHistory = [{ repo: 'repo-a', date: '2026-03-19', open: 4 }];
+        const azureSigning = {
+            status: 'ready', collected_at: '2026-03-20T00:00:00Z',
+            daily: [{ date: '2026-03-19', completed: 12 }],
+            month_to_date: 12, last_30_days: 12,
+            month_to_date_complete: false, last_30_days_complete: false,
+        };
 
         globalThis.fetch.mockImplementation(async (url) => {
             if (url.endsWith('repos.json')) return { ok: true, json: async () => repos };
@@ -357,12 +407,15 @@ describe('dashboard.js', () => {
             if (url.endsWith('commit_activity.json')) return { ok: true, json: async () => commits };
             if (url.endsWith('star_history.json')) return { ok: true, json: async () => stars };
             if (url.endsWith('code_scanning_history.json')) return { ok: true, json: async () => codeScanningHistory };
+            if (url.endsWith('azure_signing.json')) return { ok: true, json: async () => azureSigning };
             return { ok: false, status: 404 };
         });
 
         await mod.loadDashboard();
         expect(document.getElementById('loading-msg').style.display).toBe('none');
         expect(document.getElementById('dashboard-content').style.display).toBe('');
+        expect(document.getElementById('azure-signing').hidden).toBe(false);
+        expect(globalThis.Plotly.newPlot.mock.calls.some(([id]) => id === 'chart-azure-signing')).toBe(true);
 
         document.getElementById('loading-msg').remove();
         document.getElementById('dashboard-content').remove();

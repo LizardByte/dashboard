@@ -620,12 +620,66 @@ function renderDocsChart(repos) {
     }, false), CONFIG);
 }
 
+// Azure Artifact Signing account totals
+function renderAzureSigning(data) {
+    const section = document.getElementById('azure-signing');
+    if (!section) return;
+    const enabled = Boolean(data && data.status !== 'disabled');
+    section.hidden = !enabled;
+    const nav = document.getElementById('azure-signing-nav');
+    if (nav) nav.hidden = !enabled;
+    if (!enabled) return;
+
+    const summary = document.getElementById('azure-signing-summary');
+    summary.replaceChildren();
+    const status = document.getElementById('azure-signing-status');
+    if (!data.daily.some(point => point.completed !== null)) {
+        status.textContent = data.status === 'error'
+            ? 'Signing metrics are temporarily unavailable.'
+            : 'Azure has not reported signing counts for this period.';
+        document.getElementById('chart-azure-signing').hidden = true;
+        return;
+    }
+    const updated = new Date(data.collected_at).toUTCString();
+    status.textContent = data.status === 'error'
+        ? `Some metrics could not be refreshed. Available data last updated: ${updated}.`
+        : `Metrics collected: ${updated}.`;
+    for (const [value, label] of [
+        [data.month_to_date, `Month to Date (UTC)${data.month_to_date_complete ? '' : ' — partial history'}`],
+        [data.last_30_days, `Last 30 Days (UTC)${data.last_30_days_complete ? '' : ' — partial history'}`],
+    ]) {
+        const card = document.createElement('div');
+        card.className = 'col-6 mb-3 text-center';
+        const number = document.createElement('h3');
+        number.className = 'fw-bold';
+        number.textContent = value === null ? 'Unavailable' : value.toLocaleString();
+        const caption = document.createElement('small');
+        caption.className = 'text-muted';
+        caption.textContent = label;
+        card.append(number, caption);
+        summary.append(card);
+    }
+    document.getElementById('chart-azure-signing').hidden = false;
+    Plotly.newPlot('chart-azure-signing', [{
+        x: data.daily.map(point => point.date),
+        y: data.daily.map(point => point.completed),
+        type: 'bar',
+        marker: { color: '#28a9e6' },
+        hovertemplate: '%{x}: %{y} completed requests<extra></extra>',
+    }], themeLayout({
+        xaxis: { title: { text: 'Date (UTC)' }, type: 'date' },
+        yaxis: { title: { text: 'Completed Requests' }, rangemode: 'tozero' },
+        margin: { t: 30, r: 20, b: 60, l: 60 },
+    }), CONFIG);
+}
+
 // Main
 async function loadDashboard() {
     const loadingEl = document.getElementById('loading-msg');
     const contentEl = document.getElementById('dashboard-content');
     try {
-        const [repos, prs, metadata, coverageHistory, commitActivity, starHistory, codeScanningHistory] = await Promise.all([
+        const [repos, prs, metadata, coverageHistory, commitActivity, starHistory,
+            codeScanningHistory, azureSigning] = await Promise.all([
             fetchJSON('repos.json'),
             fetchJSON('prs.json'),
             fetchJSON('metadata.json'),
@@ -633,6 +687,7 @@ async function loadDashboard() {
             fetchJSON('commit_activity.json').catch(() => []),
             fetchJSON('star_history.json').catch(() => []),
             fetchJSON('code_scanning_history.json').catch(() => []),
+            fetchJSON('azure_signing.json').catch(() => null),
         ]);
 
         const active = activeRepos(repos);
@@ -671,6 +726,7 @@ async function loadDashboard() {
         renderLanguageCharts(active);
         renderCommitActivityChart(commitActivity, active);
         renderDocsChart(active);
+        renderAzureSigning(azureSigning);
 
     } catch (err) {
         if (loadingEl) loadingEl.innerHTML =
@@ -705,6 +761,7 @@ if (typeof module !== 'undefined' && module.exports) {
         renderLanguageCharts,
         renderCommitActivityChart,
         renderDocsChart,
+        renderAzureSigning,
         loadDashboard,
     };
 }

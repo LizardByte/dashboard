@@ -64,8 +64,20 @@ globalThis.DASHBOARD_CONFIG = {
       <li class="nav-item"><a class="nav-link py-0" href="#commit-activity">Commit Activity</a></li>
       <li class="nav-item"><a class="nav-link py-0" href="#languages">Languages</a></li>
       <li class="nav-item"><a class="nav-link py-0" href="#docs">Docs</a></li>
+      <li class="nav-item" id="azure-signing-nav" hidden><a class="nav-link py-0" href="#azure-signing">Code Signing</a></li>
     </ul>
   </nav>
+
+  <!-- Azure Code Signing -->
+  <section id="azure-signing" class="mb-5" hidden>
+    <h2>Azure Code Signing</h2>
+    <p class="text-muted">Completed signing requests across the Artifact Signing account. Dates are UTC;
+      today's data is partial and Azure reporting may be delayed. These counts are not an invoice.</p>
+    <p id="azure-signing-status" role="status"></p>
+    <div class="row" id="azure-signing-summary"></div>
+    <h3>Daily Completed Requests</h3>
+    <div id="chart-azure-signing" style="height:400px"></div>
+  </section>
 
   <!-- Stars -->
   <section id="stars" class="mb-5">

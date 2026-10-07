@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 from src import BASE_DIR, TEMPLATE_DIR
 from src import helpers
 from src import pr_metrics
+from src import azure_signing
 from src.logger import log
 
 
@@ -306,6 +307,7 @@ def build():
     write_json('star_history.json', star_history)
     write_json('code_scanning_history.json', code_scanning_history)
     write_json('pr_metrics.json', pr_metric_caches)
+    write_json('azure_signing.json', azure_signing.load_data(BASE_DIR))
     now = datetime.now(timezone.utc)
     write_json('metadata.json', {
         'updated_at': now.isoformat(),
