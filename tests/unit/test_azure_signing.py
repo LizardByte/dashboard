@@ -4,6 +4,7 @@ import hashlib
 import json
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
+from urllib.parse import parse_qs, unquote_plus, urlsplit
 
 import pytest
 import requests
@@ -262,7 +263,7 @@ def test_http_contract_and_no_credential_disclosure(requests_mock, configured, m
     assert request.qs['interval'] == ['pt1m']
     assert 'metricnamespace' not in request.qs
     assert 'autoadjusttimegrain' not in request.qs
-    assert request.qs['timespan'] == [f'{start.isoformat()}/{NOW.isoformat()}'.lower()]
+    assert request.qs['timespan'] == ['2026-10-06t12:00:00z/2026-10-07t12:00:00z']
     assert 'private-token' not in request.url
 
     requests_mock.post(token_url, status_code=401, text='private-token secret-value')
@@ -278,6 +279,58 @@ def test_http_contract_and_no_credential_disclosure(requests_mock, configured, m
         'Azure signing metrics error category: unspecified.',
     ]
     assert all(private not in '\n'.join(warnings + messages) for private in ('private-token', 'secret-value', RESOURCE))
+
+
+@pytest.mark.parametrize('offset_hours', [0, -4, 5.5])
+def test_timespan_survives_azure_query_decoding(requests_mock, offset_hours):
+    start = datetime(2026, 10, 5, tzinfo=timezone.utc)
+    end = datetime(2026, 10, 8, 3, 59, 8, 13470, tzinfo=timezone.utc)
+    offset = timezone(timedelta(hours=offset_hours))
+    expected = '2026-10-05T00:00:00Z/2026-10-08T03:59:08.013470Z'
+
+    def azure_response(request, context):
+        # The live rejection shows Azure decoding the timestamp's '+' as a space.
+        timespan = unquote_plus(parse_qs(urlsplit(request.url).query)['timespan'][0])
+        assert timespan == expected
+        return payload()
+
+    requests_mock.get(
+        f'https://management.azure.com{RESOURCE}/providers/Microsoft.Insights/metrics', json=azure_response,
+    )
+
+    assert signing._fetch_metrics(RESOURCE, 'token', start.astimezone(offset), end.astimezone(offset)) == payload()
+    assert requests_mock.call_count == 1
+
+
+@pytest.mark.parametrize('debug', ['false', 'true'])
+@pytest.mark.parametrize('has_points', [False, True])
+def test_debug_response_sample_counts_do_not_disclose_raw_metrics(requests_mock, monkeypatch, debug, has_points):
+    messages = []
+    monkeypatch.setenv('DASHBOARD_AZURE_SIGNING_DEBUG', debug)
+    monkeypatch.setattr(signing.log, 'info', lambda message, *args: messages.append(message % args))
+    data = payload()
+    if has_points:
+        data = payload(
+            point('2026-10-07T00:00:00Z', 17), point('2026-10-07T00:01:00Z', None),
+            {'timeStamp': '2026-10-07T00:02:00Z', 'count': 0},
+        )
+    data['value'][1]['id'] = RESOURCE
+    data['value'][1]['timeseries'][0]['metadatavalues'] = [{'name': 'TenantId', 'value': 'private-tenant'}]
+    metrics_url = f'https://management.azure.com{RESOURCE}/providers/Microsoft.Insights/metrics'
+    requests_mock.get(metrics_url, json=data)
+    start = NOW - timedelta(days=1)
+
+    assert signing._fetch_metrics(RESOURCE, 'private-token', start, NOW) == data
+    assert requests_mock.call_count == 1
+    summaries = [message for message in messages if 'response samples:' in message]
+    if debug == 'false':
+        assert summaries == []
+    else:
+        assert summaries == [
+            'Azure signing response samples: 3 points; 1 with total; 1 with count.' if has_points
+            else 'Azure signing response samples: 0 points; 0 with total; 0 with count.',
+        ]
+    assert all(private not in '\n'.join(messages) for private in (RESOURCE, 'private-token', 'private-tenant', '17'))
 
 
 @pytest.mark.parametrize(('detail', 'category'), [
@@ -304,6 +357,69 @@ def test_query_error_categories_do_not_disclose_response_details(
     assert requests_mock.call_count == 1
     assert warnings[-1] == f'Azure signing metrics error category: {category}.'
     assert all(private not in '\n'.join(warnings) for private in (detail, RESOURCE, 'secret-value', 'private-token'))
+
+
+@pytest.mark.parametrize('nested', [False, True])
+@pytest.mark.parametrize('debug', ['false', 'true'])
+def test_debug_error_details_preserve_reason_and_redact_identifiers(
+        requests_mock, configured, monkeypatch, nested, debug):
+    warnings = []
+    monkeypatch.setattr(signing.log, 'warning', lambda message, *args: warnings.append(message % args))
+    monkeypatch.setenv('DASHBOARD_AZURE_SIGNING_DEBUG', debug)
+    other_id = '12345678-1234-1234-1234-123456789012'
+    private_url = 'https://example.invalid/private?credential=encoded-value'
+    error = {'code': 'BadRequest', 'message': (
+        'Requested time interval PT1M; supported intervals: PT1H, P1D.\n'
+        f'{RESOURCE.upper()} SUB RG ACCOUNT TENANT CLIENT secret-value private-token {other_id} {private_url} '
+        '/subscriptions/another-id/resourceGroups/another-group/providers/type/name'
+    )}
+    metrics_url = f'https://management.azure.com{RESOURCE}/providers/Microsoft.Insights/metrics'
+    requests_mock.get(metrics_url, status_code=400, json={'error': error} if nested else error)
+    start = NOW - timedelta(days=1)
+
+    with pytest.raises(ValueError, match='Azure metrics request failed'):
+        signing._fetch_metrics(RESOURCE, 'private-token', start, NOW)
+
+    assert requests_mock.call_count == 1
+    details = [message for message in warnings if 'error details:' in message]
+    if debug == 'false':
+        assert details == []
+        return
+    assert len(details) == 1
+    assert 'code=BadRequest; message=Requested time interval PT1M; supported intervals: PT1H, P1D.' in details[0]
+    assert all(private not in details[0].casefold() for private in (
+        RESOURCE.casefold(), 'sub', 'rg', 'account', 'tenant', 'client', 'secret-value', 'private-token',
+        other_id, private_url, 'another-id', 'another-group',
+    ))
+    assert '\n' not in details[0]
+
+
+@pytest.mark.parametrize('error_body', [None, [], {'error': 'private-token'}, {'code': 3, 'message': []}])
+def test_debug_error_details_ignore_unstructured_responses(requests_mock, configured, monkeypatch, error_body):
+    monkeypatch.setenv('DASHBOARD_AZURE_SIGNING_DEBUG', 'true')
+    metrics_url = f'https://management.azure.com{RESOURCE}/providers/Microsoft.Insights/metrics'
+    if error_body is None:
+        requests_mock.get(metrics_url, status_code=400, text='private-token secret-value')
+    else:
+        requests_mock.get(metrics_url, status_code=400, json=error_body)
+    response = signing.requests.get(metrics_url)
+
+    detail = signing._redacted_metric_error(response, RESOURCE, 'private-token')
+
+    assert detail in ('Azure returned a non-JSON error response.', 'Azure returned no structured error details.')
+    assert 'private-token' not in detail
+    assert 'secret-value' not in detail
+
+
+def test_debug_error_details_are_bounded(requests_mock, configured):
+    metrics_url = f'https://management.azure.com{RESOURCE}/providers/Microsoft.Insights/metrics'
+    requests_mock.get(metrics_url, status_code=400, json={'message': 'x' * 5000 + ' private-token'})
+    response = signing.requests.get(metrics_url)
+
+    detail = signing._redacted_metric_error(response, RESOURCE, 'private-token')
+
+    assert len(detail) == 2000
+    assert 'private-token' not in detail
 
 
 def test_bad_tenant_cannot_redirect_credentials(monkeypatch, configured):

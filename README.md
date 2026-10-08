@@ -27,6 +27,12 @@ repository, file, certificate profile, failure-rate, or signing-duration dimensi
 are not billing records. Azure reporting can be delayed and the current day is incomplete.
 Missing metric samples are not presented as confirmed zero usage.
 
+Azure collection is currently paused by default while the signing account's Azure Monitor chart
+has no reported counts. The collector and dashboard section remain available. Workflows make no
+Azure requests unless the repository variable `DASHBOARD_AZURE_SIGNING_ENABLED` is set to `true`;
+pull-request builds always use cached data. With no published Azure cache, the section and its
+navigation link stay hidden.
+
 ### Collection costs
 
 The collector refreshes the current UTC day and recent unsettled days, with a three-hour cache for
@@ -73,7 +79,13 @@ See [Azure Monitor pricing](https://azure.microsoft.com/en-us/pricing/details/mo
    to the signing account supplies that permission. The signing role alone may not allow metric reads.
    In the signing account's **Access control (IAM)**, choose **Add role assignment → Monitoring Reader**.
    Select **User, group, or service principal**, then the app matching `AZURE_CLIENT_ID`.
-3. Run the Update workflow or wait for its next scheduled run.
+3. In **Subscriptions → your subscription → Resource providers**, verify that `Microsoft.Insights`
+   is **Registered**. If it is **NotRegistered**, select it and choose **Register**, then wait for
+   registration to complete. This is an Azure Monitor prerequisite for exploring metrics;
+   see [Microsoft's empty-chart troubleshooting guide](https://learn.microsoft.com/en-us/azure/azure-monitor/metrics/metrics-troubleshoot#chart-shows-no-data).
+4. Once Azure Monitor shows `SignCompleted` counts for the account, set the repository Actions
+   variable `DASHBOARD_AZURE_SIGNING_ENABLED` to `true` to enable collection. Leave it unset or set
+   it to `false` to keep collection paused. Run the Update workflow or wait for its next scheduled run.
 
 Local collection accepts the same names in the environment or ignored `.env` file.
 Collection stays disabled and the section stays hidden until the resource ID is configured.
@@ -91,10 +103,17 @@ the saved status and cache size.
 Authentication failures report their HTTP status separately from metric request failures.
 For a metrics HTTP 403, check the app's **Monitoring Reader** assignment on the signing account;
 HTTP 400 indicates a rejected query, and HTTP 404 indicates the resource could not be found.
+If requests succeed but all counts remain unknown, compare the account's `SignCompleted` chart in
+Azure Monitor with the collected data, and verify the subscription's `Microsoft.Insights` registration.
 Failure logs include HTTP status codes, exception types, and fixed categories for recognized query
 errors, without raw responses, resource IDs, or credentials. A run within three hours of a successful
 collection reuses the cache, even after a role assignment or other configuration change. An error
 status logs that it is retrying without the three-hour wait.
+For troubleshooting, setting `DASHBOARD_AZURE_SIGNING_DEBUG=true` also logs Azure's structured error
+code and message with credentials, resource identifiers, GUIDs, and URLs redacted. This uses the
+existing failed response and makes no additional API calls. Remove the setting after diagnosis.
+Successful responses also log the number of samples and how many contain total or count fields,
+without logging raw samples or dimension values.
 
 ## Testing
 

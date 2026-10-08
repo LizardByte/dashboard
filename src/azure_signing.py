@@ -18,6 +18,7 @@ REFRESH_INTERVAL = timedelta(hours=3)
 HISTORY_DAYS = 90
 BACKFILL_DAYS = 7
 SETTLE_DAYS = 2
+NO_STRUCTURED_ERROR_DETAILS = 'Azure returned no structured error details.'
 RESOURCE_ID_PATTERN = re.compile(
     r'/subscriptions/[\w-]+/resourceGroups/[\w.()-]+/'
     r'providers/Microsoft\.CodeSigning/codeSigningAccounts/[\w-]+', re.IGNORECASE,
@@ -125,9 +126,43 @@ def _metric_error_category(detail: str) -> str:
     return 'unspecified'
 
 
+def _redacted_metric_error(response: requests.Response, resource_id: str, token: str) -> str:
+    """Expose structured Azure error details only after removing private values."""
+    try:
+        payload = response.json()
+    except ValueError:
+        return 'Azure returned a non-JSON error response.'
+    if not isinstance(payload, dict):
+        return NO_STRUCTURED_ERROR_DETAILS
+    error = payload.get('error', payload)
+    if not isinstance(error, dict):
+        return NO_STRUCTURED_ERROR_DETAILS
+    detail = '; '.join(f'{key}={error[key]}' for key in ('code', 'message') if isinstance(error.get(key), str))
+    if not detail:
+        return NO_STRUCTURED_ERROR_DETAILS
+    detail = re.sub(r'https?://[^\s\x22\x27<>]+', '[REDACTED_URL]', detail, flags=re.IGNORECASE)
+    detail = re.sub(r'/subscriptions/[^\s\x22\x27<>]+', '[REDACTED_RESOURCE]', detail, flags=re.IGNORECASE)
+    private_values = [token, resource_id, *resource_id.split('/')[2:5:2], resource_id.rsplit('/', 1)[-1]]
+    private_values.extend(os.getenv(key, '') for key in (
+        RESOURCE_ID_ENV, 'AZURE_CLIENT_ID', 'AZURE_CLIENT_SECRET', 'AZURE_TENANT_ID',
+    ))
+    for private in sorted(set(filter(None, private_values)), key=len, reverse=True):
+        detail = re.sub(re.escape(private), '[REDACTED]', detail, flags=re.IGNORECASE)
+    detail = re.sub(
+        r'\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b',
+        '[REDACTED_ID]', detail, flags=re.IGNORECASE,
+    )
+    detail = re.sub(r'[\x00-\x1f\x7f-\x9f]', ' ', detail)
+    return detail[:2000]
+
+
 def _fetch_metrics(resource_id: str, token: str, start: datetime, end: datetime) -> dict:
     """Read one bounded metric window with no automatic retries."""
     log.info('Querying Azure signing metrics from %s to %s.', start.isoformat(), end.isoformat())
+    # Azure decodes numeric UTC offsets as spaces; use the API's UTC Z notation.
+    timespan = '/'.join(
+        timestamp.astimezone(timezone.utc).isoformat().replace('+00:00', 'Z') for timestamp in (start, end)
+    )
     response = requests.get(
         f'https://management.azure.com{resource_id}/providers/Microsoft.Insights/metrics',
         headers={'Authorization': f'Bearer {token}'},
@@ -137,7 +172,7 @@ def _fetch_metrics(resource_id: str, token: str, start: datetime, end: datetime)
             'aggregation': 'Total',
             # Use the metric's documented grain and the resource's default namespace.
             'interval': 'PT1M',
-            'timespan': f'{start.isoformat()}/{end.isoformat()}',
+            'timespan': timespan,
         },
         timeout=30,
         allow_redirects=False,
@@ -145,8 +180,18 @@ def _fetch_metrics(resource_id: str, token: str, start: datetime, end: datetime)
     if response.status_code != 200:
         log.warning('Azure signing metrics request failed (HTTP %s).', response.status_code)
         log.warning('Azure signing metrics error category: %s.', _metric_error_category(response.text))
+        if os.getenv('DASHBOARD_AZURE_SIGNING_DEBUG') == 'true':
+            log.warning('Azure signing metrics error details: %s', _redacted_metric_error(response, resource_id, token))
         raise ValueError('Azure metrics request failed')
-    return response.json()
+    payload = response.json()
+    if os.getenv('DASHBOARD_AZURE_SIGNING_DEBUG') == 'true':
+        points = list(_metric_points(payload))
+        log.info(
+            'Azure signing response samples: %s points; %s with total; %s with count.',
+            len(points), sum(point.get('total') is not None for point in points),
+            sum(point.get('count') is not None for point in points),
+        )
+    return payload
 
 
 def _metric_points(payload: dict):
