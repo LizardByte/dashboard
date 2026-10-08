@@ -68,6 +68,8 @@ See [Azure Monitor pricing](https://azure.microsoft.com/en-us/pricing/details/mo
    repository. These are the same credential names used by the organization's signing workflows.
    The service principal needs read access to metrics on this account; **Monitoring Reader** scoped
    to the signing account supplies that permission. The signing role alone may not allow metric reads.
+   In the signing account's **Access control (IAM)**, choose **Add role assignment → Monitoring Reader**.
+   Select **User, group, or service principal**, then the app matching `AZURE_CLIENT_ID`.
 3. Run the Update workflow or wait for its next scheduled run.
 
 Local collection accepts the same names in the environment or ignored `.env` file.
@@ -75,6 +77,17 @@ Collection stays disabled and the section stays hidden until the resource ID is 
 Only counts, dates, and collection status appear in the dashboard data; credentials and raw Azure
 responses are never published. A failed window retains its previous data, is eligible for retry
 after three hours, and does not discard other successfully collected windows.
+
+If the section reports that metrics are unavailable, check the Update workflow's **Cat log** step.
+The collector logs when it starts, whether it uses cached data, and the next eligible request time
+in UTC. A fresh collection logs each query's time window, how many days have reported counts, and
+the saved status and cache size.
+Authentication failures report their HTTP status separately from metric request failures.
+For a metrics HTTP 403, check the app's **Monitoring Reader** assignment on the signing account;
+HTTP 400 indicates a rejected query, and HTTP 404 indicates the resource could not be found.
+Failure logs include HTTP status codes and exception types, without raw responses, resource IDs,
+or credentials. A run within three hours of the previous attempt reuses the cache instead of retrying,
+even after a role assignment or other configuration change.
 
 ## Testing
 

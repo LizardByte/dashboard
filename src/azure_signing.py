@@ -91,6 +91,7 @@ def _get_token() -> str:
     tenant_id = os.environ['AZURE_TENANT_ID']
     if not re.fullmatch(r'[\w.-]+', tenant_id):
         raise ValueError('Invalid Azure tenant ID')
+    log.info('Authenticating for Azure signing metrics.')
     response = requests.post(
         f'https://login.microsoftonline.com/{tenant_id}/oauth2/v2.0/token',
         data={
@@ -103,12 +104,14 @@ def _get_token() -> str:
         allow_redirects=False,
     )
     if response.status_code != 200:
+        log.warning('Azure signing authentication failed (HTTP %s).', response.status_code)
         raise ValueError('Azure authentication failed')
     return response.json()['access_token']
 
 
 def _fetch_metrics(resource_id: str, token: str, start: datetime, end: datetime) -> dict:
     """Read one bounded metric window with no automatic retries."""
+    log.info('Querying Azure signing metrics from %s to %s.', start.isoformat(), end.isoformat())
     response = requests.get(
         f'https://management.azure.com{resource_id}/providers/Microsoft.Insights/metrics',
         headers={'Authorization': f'Bearer {token}'},
@@ -125,6 +128,7 @@ def _fetch_metrics(resource_id: str, token: str, start: datetime, end: datetime)
         allow_redirects=False,
     )
     if response.status_code != 200:
+        log.warning('Azure signing metrics request failed (HTTP %s).', response.status_code)
         raise ValueError('Azure metrics request failed')
     return response.json()
 
@@ -181,9 +185,14 @@ def _collect(cache: dict, resource_id: str, now: datetime) -> dict:
     for start, end in _query_windows(cache, now):
         try:
             counts = _daily_counts(_fetch_metrics(resource_id, token, start, end), start, end)
-        except (requests.RequestException, ValueError, KeyError, TypeError):
+        except (requests.RequestException, ValueError, KeyError, TypeError) as error:
+            log.warning('Azure signing metric window failed (%s).', type(error).__name__)
             failed = True
             continue
+        log.info(
+            'Azure signing metric window collected: %s of %s days have reported counts.',
+            sum(total is not None for total in counts.values()), len(counts),
+        )
         for date, total in counts.items():
             # A temporarily absent current sample must not erase a previously reported count.
             if total is not None or date not in days:
@@ -218,12 +227,15 @@ def _attempt_is_recent(cache: dict, now: datetime) -> bool:
 
 def update(base_dir: str) -> None:
     """Refresh optional metrics; preserve successful data and throttle every attempt."""
+    log.info('Updating Azure signing metrics.')
     if os.getenv('DASHBOARD_AZURE_SIGNING_CACHE_ONLY') == 'true':
+        log.info('Azure signing metrics: cache-only mode; no Azure requests will be made.')
         return
     resource_id = os.getenv(RESOURCE_ID_ENV, '').strip().rstrip('/')
     cache = _load_cache(base_dir)
     now = datetime.now(timezone.utc)
     if not resource_id:
+        log.info('Azure signing metrics disabled: AZURE_SIGNING_RESOURCE_ID is not configured.')
         data = {'status': 'disabled', 'daily': []}
     else:
         resource_hash = hashlib.sha256(resource_id.lower().encode()).hexdigest()
@@ -232,12 +244,19 @@ def update(base_dir: str) -> None:
         try:
             _validate_configuration(resource_id)
             if _attempt_is_recent(cache, now):
+                next_attempt = datetime.fromisoformat(cache['attempted_at']) + REFRESH_INTERVAL
+                log.info(
+                    'Azure signing metrics: using cached data; next Azure request allowed at %s.',
+                    next_attempt.astimezone(timezone.utc).isoformat(),
+                )
                 return
             data = _collect(cache, resource_id, now)
-        except (requests.RequestException, ValueError, KeyError, TypeError):
+        except (requests.RequestException, ValueError, KeyError, TypeError) as error:
+            log.warning('Azure signing collection failed (%s).', type(error).__name__)
             data = {**cache, 'status': 'error'}
         if data['status'] == 'error':
             log.warning('Azure signing metrics unavailable; check configuration, permissions, and connectivity.')
         data.update(resource_hash=resource_hash, attempted_at=now.isoformat())
 
     helpers.write_json_files(file_path=os.path.join(base_dir, 'azure', 'signing'), data=data)
+    log.info('Azure signing metrics saved: status=%s, %s cached days.', data['status'], len(data['daily']))
