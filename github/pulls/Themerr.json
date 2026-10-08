@@ -1,0 +1,1 @@
+[{"number": 644, "title": "chore(deps): update python docker tag to v3.15", "author": "renovate[bot]", "labels": ["docker", "dependencies"], "assignees": [], "created_at": "2026-10-13T13:42:52+00:00", "updated_at": "2026-10-13T13:58:12+00:00", "draft": false, "milestone": null}]
