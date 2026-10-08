@@ -18,6 +18,7 @@ REFRESH_INTERVAL = timedelta(hours=3)
 HISTORY_DAYS = 90
 BACKFILL_DAYS = 7
 SETTLE_DAYS = 2
+NO_STRUCTURED_ERROR_DETAILS = 'Azure returned no structured error details.'
 RESOURCE_ID_PATTERN = re.compile(
     r'/subscriptions/[\w-]+/resourceGroups/[\w.()-]+/'
     r'providers/Microsoft\.CodeSigning/codeSigningAccounts/[\w-]+', re.IGNORECASE,
@@ -132,13 +133,13 @@ def _redacted_metric_error(response: requests.Response, resource_id: str, token:
     except ValueError:
         return 'Azure returned a non-JSON error response.'
     if not isinstance(payload, dict):
-        return 'Azure returned no structured error details.'
+        return NO_STRUCTURED_ERROR_DETAILS
     error = payload.get('error', payload)
     if not isinstance(error, dict):
-        return 'Azure returned no structured error details.'
+        return NO_STRUCTURED_ERROR_DETAILS
     detail = '; '.join(f'{key}={error[key]}' for key in ('code', 'message') if isinstance(error.get(key), str))
     if not detail:
-        return 'Azure returned no structured error details.'
+        return NO_STRUCTURED_ERROR_DETAILS
     detail = re.sub(r'https?://[^\s\x22\x27<>]+', '[REDACTED_URL]', detail, flags=re.IGNORECASE)
     detail = re.sub(r'/subscriptions/[^\s\x22\x27<>]+', '[REDACTED_RESOURCE]', detail, flags=re.IGNORECASE)
     private_values = [token, resource_id, *resource_id.split('/')[2:5:2], resource_id.rsplit('/', 1)[-1]]
