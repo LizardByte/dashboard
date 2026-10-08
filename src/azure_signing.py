@@ -183,7 +183,15 @@ def _fetch_metrics(resource_id: str, token: str, start: datetime, end: datetime)
         if os.getenv('DASHBOARD_AZURE_SIGNING_DEBUG') == 'true':
             log.warning('Azure signing metrics error details: %s', _redacted_metric_error(response, resource_id, token))
         raise ValueError('Azure metrics request failed')
-    return response.json()
+    payload = response.json()
+    if os.getenv('DASHBOARD_AZURE_SIGNING_DEBUG') == 'true':
+        points = list(_metric_points(payload))
+        log.info(
+            'Azure signing response samples: %s points; %s with total; %s with count.',
+            len(points), sum(point.get('total') is not None for point in points),
+            sum(point.get('count') is not None for point in points),
+        )
+    return payload
 
 
 def _metric_points(payload: dict):

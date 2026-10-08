@@ -302,6 +302,37 @@ def test_timespan_survives_azure_query_decoding(requests_mock, offset_hours):
     assert requests_mock.call_count == 1
 
 
+@pytest.mark.parametrize('debug', ['false', 'true'])
+@pytest.mark.parametrize('has_points', [False, True])
+def test_debug_response_sample_counts_do_not_disclose_raw_metrics(requests_mock, monkeypatch, debug, has_points):
+    messages = []
+    monkeypatch.setenv('DASHBOARD_AZURE_SIGNING_DEBUG', debug)
+    monkeypatch.setattr(signing.log, 'info', lambda message, *args: messages.append(message % args))
+    data = payload()
+    if has_points:
+        data = payload(
+            point('2026-10-07T00:00:00Z', 17), point('2026-10-07T00:01:00Z', None),
+            {'timeStamp': '2026-10-07T00:02:00Z', 'count': 0},
+        )
+    data['value'][1]['id'] = RESOURCE
+    data['value'][1]['timeseries'][0]['metadatavalues'] = [{'name': 'TenantId', 'value': 'private-tenant'}]
+    metrics_url = f'https://management.azure.com{RESOURCE}/providers/Microsoft.Insights/metrics'
+    requests_mock.get(metrics_url, json=data)
+    start = NOW - timedelta(days=1)
+
+    assert signing._fetch_metrics(RESOURCE, 'private-token', start, NOW) == data
+    assert requests_mock.call_count == 1
+    summaries = [message for message in messages if 'response samples:' in message]
+    if debug == 'false':
+        assert summaries == []
+    else:
+        assert summaries == [
+            'Azure signing response samples: 3 points; 1 with total; 1 with count.' if has_points
+            else 'Azure signing response samples: 0 points; 0 with total; 0 with count.',
+        ]
+    assert all(private not in '\n'.join(messages) for private in (RESOURCE, 'private-token', 'private-tenant', '17'))
+
+
 @pytest.mark.parametrize(('detail', 'category'), [
     ('Unsupported TimeGrain', 'time interval'),
     ('Failed to find metric configuration for provider', 'namespace'),
