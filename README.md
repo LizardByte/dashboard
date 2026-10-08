@@ -95,6 +95,9 @@ Failure logs include HTTP status codes, exception types, and fixed categories fo
 errors, without raw responses, resource IDs, or credentials. A run within three hours of a successful
 collection reuses the cache, even after a role assignment or other configuration change. An error
 status logs that it is retrying without the three-hour wait.
+For troubleshooting, setting `DASHBOARD_AZURE_SIGNING_DEBUG=true` also logs Azure's structured error
+code and message with credentials, resource identifiers, GUIDs, and URLs redacted. This uses the
+existing failed response and makes no additional API calls. Remove the setting after diagnosis.
 
 ## Testing
 

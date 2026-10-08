@@ -125,6 +125,36 @@ def _metric_error_category(detail: str) -> str:
     return 'unspecified'
 
 
+def _redacted_metric_error(response: requests.Response, resource_id: str, token: str) -> str:
+    """Expose structured Azure error details only after removing private values."""
+    try:
+        payload = response.json()
+    except ValueError:
+        return 'Azure returned a non-JSON error response.'
+    if not isinstance(payload, dict):
+        return 'Azure returned no structured error details.'
+    error = payload.get('error', payload)
+    if not isinstance(error, dict):
+        return 'Azure returned no structured error details.'
+    detail = '; '.join(f'{key}={error[key]}' for key in ('code', 'message') if isinstance(error.get(key), str))
+    if not detail:
+        return 'Azure returned no structured error details.'
+    detail = re.sub(r'https?://[^\s\x22\x27<>]+', '[REDACTED_URL]', detail, flags=re.IGNORECASE)
+    detail = re.sub(r'/subscriptions/[^\s\x22\x27<>]+', '[REDACTED_RESOURCE]', detail, flags=re.IGNORECASE)
+    private_values = [token, resource_id, *resource_id.split('/')[2:5:2], resource_id.rsplit('/', 1)[-1]]
+    private_values.extend(os.getenv(key, '') for key in (
+        RESOURCE_ID_ENV, 'AZURE_CLIENT_ID', 'AZURE_CLIENT_SECRET', 'AZURE_TENANT_ID',
+    ))
+    for private in sorted(set(filter(None, private_values)), key=len, reverse=True):
+        detail = re.sub(re.escape(private), '[REDACTED]', detail, flags=re.IGNORECASE)
+    detail = re.sub(
+        r'\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b',
+        '[REDACTED_ID]', detail, flags=re.IGNORECASE,
+    )
+    detail = re.sub(r'[\x00-\x1f\x7f-\x9f]', ' ', detail)
+    return detail[:2000]
+
+
 def _fetch_metrics(resource_id: str, token: str, start: datetime, end: datetime) -> dict:
     """Read one bounded metric window with no automatic retries."""
     log.info('Querying Azure signing metrics from %s to %s.', start.isoformat(), end.isoformat())
@@ -145,6 +175,8 @@ def _fetch_metrics(resource_id: str, token: str, start: datetime, end: datetime)
     if response.status_code != 200:
         log.warning('Azure signing metrics request failed (HTTP %s).', response.status_code)
         log.warning('Azure signing metrics error category: %s.', _metric_error_category(response.text))
+        if os.getenv('DASHBOARD_AZURE_SIGNING_DEBUG') == 'true':
+            log.warning('Azure signing metrics error details: %s', _redacted_metric_error(response, resource_id, token))
         raise ValueError('Azure metrics request failed')
     return response.json()
 

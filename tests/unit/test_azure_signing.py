@@ -306,6 +306,69 @@ def test_query_error_categories_do_not_disclose_response_details(
     assert all(private not in '\n'.join(warnings) for private in (detail, RESOURCE, 'secret-value', 'private-token'))
 
 
+@pytest.mark.parametrize('nested', [False, True])
+@pytest.mark.parametrize('debug', ['false', 'true'])
+def test_debug_error_details_preserve_reason_and_redact_identifiers(
+        requests_mock, configured, monkeypatch, nested, debug):
+    warnings = []
+    monkeypatch.setattr(signing.log, 'warning', lambda message, *args: warnings.append(message % args))
+    monkeypatch.setenv('DASHBOARD_AZURE_SIGNING_DEBUG', debug)
+    other_id = '12345678-1234-1234-1234-123456789012'
+    private_url = 'https://example.invalid/private?credential=encoded-value'
+    error = {'code': 'BadRequest', 'message': (
+        'Requested time interval PT1M; supported intervals: PT1H, P1D.\n'
+        f'{RESOURCE.upper()} SUB RG ACCOUNT TENANT CLIENT secret-value private-token {other_id} {private_url} '
+        '/subscriptions/another-id/resourceGroups/another-group/providers/type/name'
+    )}
+    metrics_url = f'https://management.azure.com{RESOURCE}/providers/Microsoft.Insights/metrics'
+    requests_mock.get(metrics_url, status_code=400, json={'error': error} if nested else error)
+    start = NOW - timedelta(days=1)
+
+    with pytest.raises(ValueError, match='Azure metrics request failed'):
+        signing._fetch_metrics(RESOURCE, 'private-token', start, NOW)
+
+    assert requests_mock.call_count == 1
+    details = [message for message in warnings if 'error details:' in message]
+    if debug == 'false':
+        assert details == []
+        return
+    assert len(details) == 1
+    assert 'code=BadRequest; message=Requested time interval PT1M; supported intervals: PT1H, P1D.' in details[0]
+    assert all(private not in details[0].casefold() for private in (
+        RESOURCE.casefold(), 'sub', 'rg', 'account', 'tenant', 'client', 'secret-value', 'private-token',
+        other_id, private_url, 'another-id', 'another-group',
+    ))
+    assert '\n' not in details[0]
+
+
+@pytest.mark.parametrize('error_body', [None, [], {'error': 'private-token'}, {'code': 3, 'message': []}])
+def test_debug_error_details_ignore_unstructured_responses(requests_mock, configured, monkeypatch, error_body):
+    monkeypatch.setenv('DASHBOARD_AZURE_SIGNING_DEBUG', 'true')
+    metrics_url = f'https://management.azure.com{RESOURCE}/providers/Microsoft.Insights/metrics'
+    if error_body is None:
+        requests_mock.get(metrics_url, status_code=400, text='private-token secret-value')
+    else:
+        requests_mock.get(metrics_url, status_code=400, json=error_body)
+    response = signing.requests.get(metrics_url)
+
+    detail = signing._redacted_metric_error(response, RESOURCE, 'private-token')
+
+    assert detail in ('Azure returned a non-JSON error response.', 'Azure returned no structured error details.')
+    assert 'private-token' not in detail
+    assert 'secret-value' not in detail
+
+
+def test_debug_error_details_are_bounded(requests_mock, configured):
+    metrics_url = f'https://management.azure.com{RESOURCE}/providers/Microsoft.Insights/metrics'
+    requests_mock.get(metrics_url, status_code=400, json={'message': 'x' * 5000 + ' private-token'})
+    response = signing.requests.get(metrics_url)
+
+    detail = signing._redacted_metric_error(response, RESOURCE, 'private-token')
+
+    assert len(detail) == 2000
+    assert 'private-token' not in detail
+
+
 def test_bad_tenant_cannot_redirect_credentials(monkeypatch, configured):
     monkeypatch.setenv('AZURE_TENANT_ID', 'tenant/../../evil')
     with pytest.raises(ValueError, match='Invalid Azure tenant ID'):
