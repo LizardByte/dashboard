@@ -27,6 +27,12 @@ repository, file, certificate profile, failure-rate, or signing-duration dimensi
 are not billing records. Azure reporting can be delayed and the current day is incomplete.
 Missing metric samples are not presented as confirmed zero usage.
 
+Azure collection is currently paused by default while the signing account's Azure Monitor chart
+has no reported counts. The collector and dashboard section remain available. Workflows make no
+Azure requests unless the repository variable `DASHBOARD_AZURE_SIGNING_ENABLED` is set to `true`;
+pull-request builds always use cached data. With no published Azure cache, the section and its
+navigation link stay hidden.
+
 ### Collection costs
 
 The collector refreshes the current UTC day and recent unsettled days, with a three-hour cache for
@@ -77,7 +83,9 @@ See [Azure Monitor pricing](https://azure.microsoft.com/en-us/pricing/details/mo
    is **Registered**. If it is **NotRegistered**, select it and choose **Register**, then wait for
    registration to complete. This is an Azure Monitor prerequisite for exploring metrics;
    see [Microsoft's empty-chart troubleshooting guide](https://learn.microsoft.com/en-us/azure/azure-monitor/metrics/metrics-troubleshoot#chart-shows-no-data).
-4. Run the Update workflow or wait for its next scheduled run.
+4. Once Azure Monitor shows `SignCompleted` counts for the account, set the repository Actions
+   variable `DASHBOARD_AZURE_SIGNING_ENABLED` to `true` to enable collection. Leave it unset or set
+   it to `false` to keep collection paused. Run the Update workflow or wait for its next scheduled run.
 
 Local collection accepts the same names in the environment or ignored `.env` file.
 Collection stays disabled and the section stays hidden until the resource ID is configured.
