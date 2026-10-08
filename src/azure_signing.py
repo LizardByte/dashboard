@@ -22,6 +22,13 @@ RESOURCE_ID_PATTERN = re.compile(
     r'/subscriptions/[\w-]+/resourceGroups/[\w.()-]+/'
     r'providers/Microsoft\.CodeSigning/codeSigningAccounts/[\w-]+', re.IGNORECASE,
 )
+METRIC_ERROR_CATEGORIES = (
+    ('time interval', ('timegrain', 'time grain', 'time-grain', 'interval')),
+    ('namespace', ('namespace', 'metric configuration')),
+    ('metric name', ('metricnames', 'metric name', 'metric named')),
+    ('aggregation', ('aggregation',)),
+    ('time range', ('timespan', 'time span', 'starttime', 'endtime', 'start time', 'end time')),
+)
 
 
 def _load_cache(base_dir: str) -> dict:
@@ -109,6 +116,15 @@ def _get_token() -> str:
     return response.json()['access_token']
 
 
+def _metric_error_category(detail: str) -> str:
+    """Classify common errors using fixed labels, never returning response content."""
+    detail = detail.casefold()
+    for category, markers in METRIC_ERROR_CATEGORIES:
+        if any(marker in detail for marker in markers):
+            return category
+    return 'unspecified'
+
+
 def _fetch_metrics(resource_id: str, token: str, start: datetime, end: datetime) -> dict:
     """Read one bounded metric window with no automatic retries."""
     log.info('Querying Azure signing metrics from %s to %s.', start.isoformat(), end.isoformat())
@@ -117,11 +133,10 @@ def _fetch_metrics(resource_id: str, token: str, start: datetime, end: datetime)
         headers={'Authorization': f'Bearer {token}'},
         params={
             'api-version': '2023-10-01',
-            'metricnamespace': 'Microsoft.CodeSigning/codeSigningAccounts',
             'metricnames': 'SignCompleted',
             'aggregation': 'Total',
-            'interval': 'P1D',
-            'AutoAdjustTimegrain': 'true',
+            # Use the metric's documented grain and the resource's default namespace.
+            'interval': 'PT1M',
             'timespan': f'{start.isoformat()}/{end.isoformat()}',
         },
         timeout=30,
@@ -129,6 +144,7 @@ def _fetch_metrics(resource_id: str, token: str, start: datetime, end: datetime)
     )
     if response.status_code != 200:
         log.warning('Azure signing metrics request failed (HTTP %s).', response.status_code)
+        log.warning('Azure signing metrics error category: %s.', _metric_error_category(response.text))
         raise ValueError('Azure metrics request failed')
     return response.json()
 
@@ -218,7 +234,10 @@ def _validate_configuration(resource_id: str) -> None:
 
 
 def _attempt_is_recent(cache: dict, now: datetime) -> bool:
-    """Throttle successful and failed attempts within the refresh interval."""
+    """Allow failed collections to retry; otherwise throttle recent attempts."""
+    if cache.get('status') == 'error':
+        log.info('Azure signing metrics: previous collection failed; retrying without the three-hour wait.')
+        return False
     if not cache.get('attempted_at'):
         return False
     attempted_at = datetime.fromisoformat(cache['attempted_at'])
@@ -226,7 +245,7 @@ def _attempt_is_recent(cache: dict, now: datetime) -> bool:
 
 
 def update(base_dir: str) -> None:
-    """Refresh optional metrics; preserve successful data and throttle every attempt."""
+    """Refresh optional metrics; preserve history and throttle successful collections."""
     log.info('Updating Azure signing metrics.')
     if os.getenv('DASHBOARD_AZURE_SIGNING_CACHE_ONLY') == 'true':
         log.info('Azure signing metrics: cache-only mode; no Azure requests will be made.')

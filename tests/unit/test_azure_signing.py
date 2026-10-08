@@ -94,13 +94,13 @@ def test_cache_only_preview_preserves_data_without_requests(
         assert signing.load_data(str(tmp_path)) == {'status': 'disabled', 'daily': []}
 
 
-@pytest.mark.parametrize('status', ['ready', 'error'])
-def test_recent_attempt_logs_next_refresh_without_requests(tmp_path, monkeypatch, configured, requests_mock, status):
+def test_recent_success_logs_next_refresh_without_requests(tmp_path, monkeypatch, configured, requests_mock):
     messages = []
     monkeypatch.setattr(signing.log, 'info', lambda message, *args: messages.append(message % args))
     attempted_at = (NOW - timedelta(hours=2)).astimezone(timezone(timedelta(hours=-4)))
     path = write_cache(tmp_path, {
-        'status': status, 'daily': [], 'attempted_at': attempted_at.isoformat(),
+        'status': 'ready', 'daily': [{'date': '2026-10-06', 'completed': 0}],
+        'collected_at': attempted_at.isoformat(), 'attempted_at': attempted_at.isoformat(),
         'resource_hash': hashlib.sha256(RESOURCE.lower().encode()).hexdigest(),
     })
     original = path.read_bytes()
@@ -111,6 +111,53 @@ def test_recent_attempt_logs_next_refresh_without_requests(tmp_path, monkeypatch
     assert path.read_bytes() == original
     assert f'next Azure request allowed at {(NOW + timedelta(hours=1)).isoformat()}' in '\n'.join(messages)
     assert all(private not in '\n'.join(messages) for private in ('secret-value', RESOURCE))
+
+
+@pytest.mark.parametrize('outcome', ['success', 'failure', 'preview'])
+@pytest.mark.parametrize('has_history', [False, True])
+def test_failed_cache_retries_immediately(tmp_path, monkeypatch, configured, requests_mock, outcome, has_history):
+    daily = [{'date': '2026-10-01', 'completed': 4}] if has_history else []
+    collected_at = (NOW - timedelta(days=1)).isoformat() if has_history else None
+    finalized = ['2026-10-01'] if has_history else []
+    path = write_cache(tmp_path, {
+        'status': 'error', 'daily': daily, 'collected_at': collected_at, 'finalized_dates': finalized,
+        'attempted_at': (NOW - timedelta(minutes=10)).isoformat(),
+        'resource_hash': hashlib.sha256(RESOURCE.lower().encode()).hexdigest(),
+    })
+    original = path.read_bytes()
+    requests_mock.post('https://login.microsoftonline.com/tenant/oauth2/v2.0/token', json={'access_token': 'token'})
+    metrics_url = f'https://management.azure.com{RESOURCE}/providers/Microsoft.Insights/metrics'
+    if outcome == 'failure':
+        requests_mock.get(metrics_url, status_code=400)
+    else:
+        requests_mock.get(metrics_url, json=payload(point('2026-10-07T00:00:00Z', 7)))
+    if outcome == 'preview':
+        monkeypatch.setenv('DASHBOARD_AZURE_SIGNING_CACHE_ONLY', 'true')
+
+    signing.update(str(tmp_path))
+
+    if outcome == 'preview':
+        assert requests_mock.call_count == 0
+        assert path.read_bytes() == original
+        return
+    assert requests_mock.call_count == 3  # One token request and two metric queries, without in-run retries.
+    saved = signing._load_cache(str(tmp_path))
+    assert saved['attempted_at'] == NOW.isoformat()
+    for cached_day in daily:
+        assert cached_day in saved['daily']
+    configured.current += timedelta(minutes=1)
+    signing.update(str(tmp_path))
+    if outcome == 'failure':
+        assert saved['status'] == 'error'
+        assert saved['daily'] == daily
+        assert saved['collected_at'] == collected_at
+        assert saved['finalized_dates'] == finalized
+        assert requests_mock.call_count == 6
+    else:
+        assert saved['status'] == 'ready'
+        assert saved['collected_at'] == NOW.isoformat()
+        assert {'date': '2026-10-07', 'completed': 7} in saved['daily']
+        assert requests_mock.call_count == 3  # A successful collection restores the three-hour throttle.
 
 
 def test_public_totals_and_partial_history(tmp_path):
@@ -212,6 +259,9 @@ def test_http_contract_and_no_credential_disclosure(requests_mock, configured, m
     assert request.headers['Authorization'] == 'Bearer private-token'
     assert request.qs['metricnames'] == ['signcompleted']
     assert request.qs['aggregation'] == ['total']
+    assert request.qs['interval'] == ['pt1m']
+    assert 'metricnamespace' not in request.qs
+    assert 'autoadjusttimegrain' not in request.qs
     assert request.qs['timespan'] == [f'{start.isoformat()}/{NOW.isoformat()}'.lower()]
     assert 'private-token' not in request.url
 
@@ -225,8 +275,35 @@ def test_http_contract_and_no_credential_disclosure(requests_mock, configured, m
     assert warnings == [
         'Azure signing authentication failed (HTTP 401).',
         'Azure signing metrics request failed (HTTP 403).',
+        'Azure signing metrics error category: unspecified.',
     ]
     assert all(private not in '\n'.join(warnings + messages) for private in ('private-token', 'secret-value', RESOURCE))
+
+
+@pytest.mark.parametrize(('detail', 'category'), [
+    ('Unsupported TimeGrain', 'time interval'),
+    ('Failed to find metric configuration for provider', 'namespace'),
+    ('Failed to find metric named SignCompleted', 'metric name'),
+    ('Unsupported aggregation type', 'aggregation'),
+    ('Invalid timespan', 'time range'),
+    ('Unrecognized error', 'unspecified'),
+])
+def test_query_error_categories_do_not_disclose_response_details(
+        requests_mock, configured, monkeypatch, detail, category):
+    warnings = []
+    monkeypatch.setattr(signing.log, 'warning', lambda message, *args: warnings.append(message % args))
+    metrics_url = f'https://management.azure.com{RESOURCE}/providers/Microsoft.Insights/metrics'
+    requests_mock.get(metrics_url, status_code=400, json={
+        'error': {'code': 'BadRequest', 'message': f'{detail}: {RESOURCE} secret-value private-token'},
+    })
+
+    start = NOW - timedelta(days=1)
+    with pytest.raises(ValueError, match='Azure metrics request failed'):
+        signing._fetch_metrics(RESOURCE, 'private-token', start, NOW)
+
+    assert requests_mock.call_count == 1
+    assert warnings[-1] == f'Azure signing metrics error category: {category}.'
+    assert all(private not in '\n'.join(warnings) for private in (detail, RESOURCE, 'secret-value', 'private-token'))
 
 
 def test_bad_tenant_cannot_redirect_credentials(monkeypatch, configured):
@@ -339,7 +416,7 @@ def test_current_failure_can_still_backfill(monkeypatch):
 
 
 @pytest.mark.parametrize('failure', ['credentials', 'resource', 'authentication', 'cache_timestamp'])
-def test_update_failures_preserve_matching_cache(monkeypatch, tmp_path, configured, failure):
+def test_update_failures_preserve_matching_cache(monkeypatch, tmp_path, configured, requests_mock, failure):
     cache = {
         'status': 'ready', 'daily': [{'date': '2026-10-01', 'completed': 4}],
         'collected_at': (NOW - timedelta(days=1)).isoformat(),
@@ -351,6 +428,10 @@ def test_update_failures_preserve_matching_cache(monkeypatch, tmp_path, configur
         monkeypatch.setenv(signing.RESOURCE_ID_ENV, 'https://evil.example/resource')
     elif failure == 'cache_timestamp':
         cache['attempted_at'] = 'not-a-date'
+        requests_mock.post('https://login.microsoftonline.com/tenant/oauth2/v2.0/token', json={'access_token': 'token'})
+        requests_mock.get(
+            f'https://management.azure.com{RESOURCE}/providers/Microsoft.Insights/metrics', json=payload(),
+        )
     else:
         def bad_token():
             raise requests.Timeout('secret-value')
@@ -365,6 +446,11 @@ def test_update_failures_preserve_matching_cache(monkeypatch, tmp_path, configur
     else:
         assert saved['daily'] == cache['daily']
     signing.update(str(tmp_path))
+    if failure == 'cache_timestamp':
+        assert requests_mock.call_count == 3
+        assert signing._load_cache(str(tmp_path))['status'] == 'ready'
+    else:
+        assert requests_mock.call_count == 0
 
 
 def test_request_options_disable_redirects_and_retries(monkeypatch, configured):
