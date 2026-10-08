@@ -73,7 +73,11 @@ See [Azure Monitor pricing](https://azure.microsoft.com/en-us/pricing/details/mo
    to the signing account supplies that permission. The signing role alone may not allow metric reads.
    In the signing account's **Access control (IAM)**, choose **Add role assignment → Monitoring Reader**.
    Select **User, group, or service principal**, then the app matching `AZURE_CLIENT_ID`.
-3. Run the Update workflow or wait for its next scheduled run.
+3. In **Subscriptions → your subscription → Resource providers**, verify that `Microsoft.Insights`
+   is **Registered**. If it is **NotRegistered**, select it and choose **Register**, then wait for
+   registration to complete. This is an Azure Monitor prerequisite for exploring metrics;
+   see [Microsoft's empty-chart troubleshooting guide](https://learn.microsoft.com/en-us/azure/azure-monitor/metrics/metrics-troubleshoot#chart-shows-no-data).
+4. Run the Update workflow or wait for its next scheduled run.
 
 Local collection accepts the same names in the environment or ignored `.env` file.
 Collection stays disabled and the section stays hidden until the resource ID is configured.
@@ -91,6 +95,8 @@ the saved status and cache size.
 Authentication failures report their HTTP status separately from metric request failures.
 For a metrics HTTP 403, check the app's **Monitoring Reader** assignment on the signing account;
 HTTP 400 indicates a rejected query, and HTTP 404 indicates the resource could not be found.
+If requests succeed but all counts remain unknown, compare the account's `SignCompleted` chart in
+Azure Monitor with the collected data, and verify the subscription's `Microsoft.Insights` registration.
 Failure logs include HTTP status codes, exception types, and fixed categories for recognized query
 errors, without raw responses, resource IDs, or credentials. A run within three hours of a successful
 collection reuses the cache, even after a role assignment or other configuration change. An error
