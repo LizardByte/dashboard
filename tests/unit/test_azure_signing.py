@@ -68,6 +68,8 @@ def test_disabled_and_invalid_cache(tmp_path, monkeypatch):
 @pytest.mark.parametrize('has_cache', [False, True])
 def test_cache_only_preview_preserves_data_without_requests(
         tmp_path, monkeypatch, configured, requests_mock, has_cache):
+    messages = []
+    monkeypatch.setattr(signing.log, 'info', lambda message, *args: messages.append(message % args))
     monkeypatch.setenv('DASHBOARD_AZURE_SIGNING_CACHE_ONLY', 'true')
     path = tmp_path / 'azure' / 'signing.json'
     if has_cache:
@@ -83,12 +85,32 @@ def test_cache_only_preview_preserves_data_without_requests(
     signing.update(str(tmp_path))
 
     assert requests_mock.call_count == 0
+    assert 'cache-only mode; no Azure requests' in '\n'.join(messages)
     if has_cache:
         assert path.read_bytes() == original
         assert signing.load_data(str(tmp_path))['daily'] == [{'date': '2026-10-06', 'completed': 7}]
     else:
         assert not path.exists()
         assert signing.load_data(str(tmp_path)) == {'status': 'disabled', 'daily': []}
+
+
+@pytest.mark.parametrize('status', ['ready', 'error'])
+def test_recent_attempt_logs_next_refresh_without_requests(tmp_path, monkeypatch, configured, requests_mock, status):
+    messages = []
+    monkeypatch.setattr(signing.log, 'info', lambda message, *args: messages.append(message % args))
+    attempted_at = (NOW - timedelta(hours=2)).astimezone(timezone(timedelta(hours=-4)))
+    path = write_cache(tmp_path, {
+        'status': status, 'daily': [], 'attempted_at': attempted_at.isoformat(),
+        'resource_hash': hashlib.sha256(RESOURCE.lower().encode()).hexdigest(),
+    })
+    original = path.read_bytes()
+
+    signing.update(str(tmp_path))
+
+    assert requests_mock.call_count == 0
+    assert path.read_bytes() == original
+    assert f'next Azure request allowed at {(NOW + timedelta(hours=1)).isoformat()}' in '\n'.join(messages)
+    assert all(private not in '\n'.join(messages) for private in ('secret-value', RESOURCE))
 
 
 def test_public_totals_and_partial_history(tmp_path):
@@ -173,7 +195,11 @@ def test_unavailable_or_malformed_metrics_are_not_finalized():
             signing._daily_counts(data, start, NOW)
 
 
-def test_http_contract_and_no_credential_disclosure(requests_mock, configured):
+def test_http_contract_and_no_credential_disclosure(requests_mock, configured, monkeypatch):
+    warnings = []
+    messages = []
+    monkeypatch.setattr(signing.log, 'warning', lambda message, *args: warnings.append(message % args))
+    monkeypatch.setattr(signing.log, 'info', lambda message, *args: messages.append(message % args))
     token_url = 'https://login.microsoftonline.com/tenant/oauth2/v2.0/token'
     metrics_url = f'https://management.azure.com{RESOURCE}/providers/Microsoft.Insights/metrics'
     requests_mock.post(token_url, json={'access_token': 'private-token'})
@@ -193,9 +219,14 @@ def test_http_contract_and_no_credential_disclosure(requests_mock, configured):
     with pytest.raises(ValueError, match='Azure authentication failed') as error:
         signing._get_token()
     assert 'secret-value' not in str(error.value)
-    requests_mock.get(metrics_url, status_code=403)
+    requests_mock.get(metrics_url, status_code=403, text=f'private-token secret-value {RESOURCE}')
     with pytest.raises(ValueError, match='Azure metrics request failed'):
         signing._fetch_metrics(RESOURCE, token, start, NOW)
+    assert warnings == [
+        'Azure signing authentication failed (HTTP 401).',
+        'Azure signing metrics request failed (HTTP 403).',
+    ]
+    assert all(private not in '\n'.join(warnings + messages) for private in ('private-token', 'secret-value', RESOURCE))
 
 
 def test_bad_tenant_cannot_redirect_credentials(monkeypatch, configured):
@@ -258,6 +289,8 @@ def test_incremental_refresh_rollover_and_archival(monkeypatch, tmp_path, config
 
 
 def test_failed_backfill_keeps_current_and_retries_gap(monkeypatch, tmp_path, configured):
+    warnings = []
+    monkeypatch.setattr(signing.log, 'warning', lambda message, *args: warnings.append(message % args))
     monkeypatch.setattr(signing, '_get_token', lambda: 'token')
     windows = []
 
@@ -278,6 +311,8 @@ def test_failed_backfill_keeps_current_and_retries_gap(monkeypatch, tmp_path, co
     configured.current += timedelta(hours=3)
     signing.update(str(tmp_path))
     assert windows[3] == windows[1]
+    assert warnings.count('Azure signing metric window failed (Timeout).') == 2
+    assert all(private not in '\n'.join(warnings) for private in ('private-token', 'secret-value', RESOURCE))
 
 
 def test_absent_recent_samples_preserve_previous_counts(monkeypatch):
