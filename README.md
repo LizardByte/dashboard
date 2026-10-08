@@ -29,14 +29,17 @@ Missing metric samples are not presented as confirmed zero usage.
 
 ### Collection costs
 
-The collector refreshes the current UTC day and recent unsettled days, with a three-hour cache and
-no automatic retries. Each update also backfills at most seven missing historical days, starting
-with the oldest dates in Azure's available 90-day window. Once a complete day has had two full
+The collector refreshes the current UTC day and recent unsettled days, with a three-hour cache for
+successful collections and no automatic retries. Any failed collection can be retried on the next
+production or manual workflow run immediately. Each update also backfills at most seven missing
+historical days, starting with the oldest dates in Azure's available 90-day window. Once a complete day has had two full
 days of reporting grace and is fetched successfully, it is finalized and never fetched again.
 Historical gaps are queried separately, so a backfill request never spans finalized days.
 Finalized history is retained indefinitely in the existing `gh-pages` branch, without Azure storage.
 Successfully queried days with no numeric samples remain unknown, rather than becoming zero;
 partial month and 30-day totals are labeled while history fills in.
+Queries use `SignCompleted`'s supported one-minute interval in the resource's default metric
+namespace, then sum the samples into UTC days locally. Each bounded time window still uses one query.
 
 The scheduled job runs eight times per day: one metric query per update when caught up, or at
 most two while backfilling (at most 496 queries in a 31-day month for one account). Site visitors
@@ -75,8 +78,11 @@ See [Azure Monitor pricing](https://azure.microsoft.com/en-us/pricing/details/mo
 Local collection accepts the same names in the environment or ignored `.env` file.
 Collection stays disabled and the section stays hidden until the resource ID is configured.
 Only counts, dates, and collection status appear in the dashboard data; credentials and raw Azure
-responses are never published. A failed window retains its previous data, is eligible for retry
-after three hours, and does not discard other successfully collected windows.
+responses are never published. A failed window retains its previous data and does not discard other
+successfully collected windows. A cache with `status: error` is eligible for immediate retry on the
+next production or manual workflow run, even with existing history and a recent `attempted_at`.
+Each run still makes at most two metric queries, with no retries within the run. Repeated runs while
+the cache has an error status can therefore make additional queries beyond the scheduled monthly estimate.
 
 If the section reports that metrics are unavailable, check the Update workflow's **Cat log** step.
 The collector logs when it starts, whether it uses cached data, and the next eligible request time
@@ -85,9 +91,10 @@ the saved status and cache size.
 Authentication failures report their HTTP status separately from metric request failures.
 For a metrics HTTP 403, check the app's **Monitoring Reader** assignment on the signing account;
 HTTP 400 indicates a rejected query, and HTTP 404 indicates the resource could not be found.
-Failure logs include HTTP status codes and exception types, without raw responses, resource IDs,
-or credentials. A run within three hours of the previous attempt reuses the cache instead of retrying,
-even after a role assignment or other configuration change.
+Failure logs include HTTP status codes, exception types, and fixed categories for recognized query
+errors, without raw responses, resource IDs, or credentials. A run within three hours of a successful
+collection reuses the cache, even after a role assignment or other configuration change. An error
+status logs that it is retrying without the three-hour wait.
 
 ## Testing
 
