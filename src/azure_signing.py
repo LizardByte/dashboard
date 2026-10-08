@@ -159,6 +159,10 @@ def _redacted_metric_error(response: requests.Response, resource_id: str, token:
 def _fetch_metrics(resource_id: str, token: str, start: datetime, end: datetime) -> dict:
     """Read one bounded metric window with no automatic retries."""
     log.info('Querying Azure signing metrics from %s to %s.', start.isoformat(), end.isoformat())
+    # Azure decodes numeric UTC offsets as spaces; use the API's UTC Z notation.
+    timespan = '/'.join(
+        timestamp.astimezone(timezone.utc).isoformat().replace('+00:00', 'Z') for timestamp in (start, end)
+    )
     response = requests.get(
         f'https://management.azure.com{resource_id}/providers/Microsoft.Insights/metrics',
         headers={'Authorization': f'Bearer {token}'},
@@ -168,7 +172,7 @@ def _fetch_metrics(resource_id: str, token: str, start: datetime, end: datetime)
             'aggregation': 'Total',
             # Use the metric's documented grain and the resource's default namespace.
             'interval': 'PT1M',
-            'timespan': f'{start.isoformat()}/{end.isoformat()}',
+            'timespan': timespan,
         },
         timeout=30,
         allow_redirects=False,

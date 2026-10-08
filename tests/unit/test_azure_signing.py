@@ -4,6 +4,7 @@ import hashlib
 import json
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
+from urllib.parse import parse_qs, unquote_plus, urlsplit
 
 import pytest
 import requests
@@ -262,7 +263,7 @@ def test_http_contract_and_no_credential_disclosure(requests_mock, configured, m
     assert request.qs['interval'] == ['pt1m']
     assert 'metricnamespace' not in request.qs
     assert 'autoadjusttimegrain' not in request.qs
-    assert request.qs['timespan'] == [f'{start.isoformat()}/{NOW.isoformat()}'.lower()]
+    assert request.qs['timespan'] == ['2026-10-06t12:00:00z/2026-10-07t12:00:00z']
     assert 'private-token' not in request.url
 
     requests_mock.post(token_url, status_code=401, text='private-token secret-value')
@@ -278,6 +279,27 @@ def test_http_contract_and_no_credential_disclosure(requests_mock, configured, m
         'Azure signing metrics error category: unspecified.',
     ]
     assert all(private not in '\n'.join(warnings + messages) for private in ('private-token', 'secret-value', RESOURCE))
+
+
+@pytest.mark.parametrize('offset_hours', [0, -4, 5.5])
+def test_timespan_survives_azure_query_decoding(requests_mock, offset_hours):
+    start = datetime(2026, 10, 5, tzinfo=timezone.utc)
+    end = datetime(2026, 10, 8, 3, 59, 8, 13470, tzinfo=timezone.utc)
+    offset = timezone(timedelta(hours=offset_hours))
+    expected = '2026-10-05T00:00:00Z/2026-10-08T03:59:08.013470Z'
+
+    def azure_response(request, context):
+        # The live rejection shows Azure decoding the timestamp's '+' as a space.
+        timespan = unquote_plus(parse_qs(urlsplit(request.url).query)['timespan'][0])
+        assert timespan == expected
+        return payload()
+
+    requests_mock.get(
+        f'https://management.azure.com{RESOURCE}/providers/Microsoft.Insights/metrics', json=azure_response,
+    )
+
+    assert signing._fetch_metrics(RESOURCE, 'token', start.astimezone(offset), end.astimezone(offset)) == payload()
+    assert requests_mock.call_count == 1
 
 
 @pytest.mark.parametrize(('detail', 'category'), [
