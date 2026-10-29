@@ -24,7 +24,7 @@ dependencies = [
 
 [dependency-groups]
 dev = [
-    "flake8==7.4.1",
+    "flake8==7.5.0",
     "pytest==9.2.0",
     "pytest-cov==7.1.0",
     "requests-mock==1.12.1",
