@@ -53,7 +53,8 @@ function configureOrganizations(repos, render) {
     const select = document.getElementById('organization-filter');
     if (!select) return;
     select.replaceChildren(new Option('All organizations', ''));
-    const owners = [...new Set(repos.map(repo => repo.owner).filter(Boolean))].sort();
+    const owners = [...new Set(repos.map(repo => repo.owner).filter(Boolean))]
+        .sort((left, right) => left.localeCompare(right));
     owners.forEach(owner => select.add(new Option(owner, owner)));
     select.onchange = render;
 }

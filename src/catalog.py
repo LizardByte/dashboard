@@ -26,7 +26,9 @@ def safe_key(value: str) -> str:
     parts = value.split('/')
     if len(parts) > 2 or any(not re.fullmatch(r'[\w.-]+', part) or part in {'.', '..'} for part in parts):
         raise ValueError('Invalid repository cache key')
-    return os.path.join(*parts)
+    # Sanitize each filename component separately so owner/name keys stay distinct.
+    name = os.path.basename(parts[-1])
+    return os.path.join(os.path.basename(parts[0]), name) if len(parts) == 2 else name
 
 
 def full_name(repo: dict) -> str:

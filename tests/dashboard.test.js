@@ -494,8 +494,10 @@ describe('dashboard.js', () => {
     test('organization controls tolerate legacy records and report partial collections', () => {
         document.body.insertAdjacentHTML('beforeend', `
             <select id="organization-filter"></select><p id="collection-status"></p>`);
-        mod.configureOrganizations([...sampleRepos(), { owner: 'First' }, { owner: 'First' }], jest.fn());
-        expect(document.querySelectorAll('#organization-filter option')).toHaveLength(2);
+        mod.configureOrganizations([...sampleRepos(), { owner: 'Zeta' }, { owner: 'alpha' }, { owner: 'alpha' }],
+            jest.fn());
+        expect(Array.from(document.querySelectorAll('#organization-filter option')).map(option => option.textContent))
+            .toEqual(['All organizations', 'alpha', 'Zeta']);
         const status = document.getElementById('collection-status');
         mod.renderCollectionStatus({});
         expect(status.hidden).toBe(true);

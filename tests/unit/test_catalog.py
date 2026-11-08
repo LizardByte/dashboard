@@ -126,8 +126,9 @@ def test_index_validation_rejects_ambiguous_legacy_paths_and_unknown_versions(tm
     write(tmp_path / 'github/catalog.json', {'version': 2})
     with pytest.raises(ValueError, match='Unsupported'):
         catalog.load_state(str(tmp_path))
+    conflicting = repository(2, 'First/demo').raw_data
     with pytest.raises(ValueError, match='another repository ID'):
-        catalog._register({'repositories': {'1': {'key': 'First/demo'}}}, repository(2, 'First/demo').raw_data)
+        catalog._register({'repositories': {'1': {'key': 'First/demo'}}}, conflicting)
 
 
 def test_legacy_private_entries_are_not_registered_and_non_github_docs_are_not_guessed(tmp_path):

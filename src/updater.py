@@ -148,8 +148,8 @@ def _merge_coverage_history(path: str, incoming: list) -> list:
     return sorted(points.values(), key=lambda entry: entry['timestamp'])
 
 
-def _update_codecov_org(owner: str, keys: dict | None = None):
-    """Refresh one organization, retaining legacy name-only cache identities where assigned."""
+def _archived_codecov_repositories(owner: str, keys: dict | None) -> set:
+    """Get archived names in the current org without blocking collection on a missing cache."""
     archived_repos = set()
     repos_path = os.path.join(BASE_DIR, 'github', 'repos.json')
     if os.path.exists(repos_path):
@@ -159,6 +159,12 @@ def _update_codecov_org(owner: str, keys: dict | None = None):
                                   and (keys is None or catalog.full_name(r).split('/')[0] == owner)}
         except Exception as e:
             log.warning(f'Could not load GitHub repos for archived check: {e}')
+    return archived_repos
+
+
+def _update_codecov_org(owner: str, keys: dict | None = None):
+    """Refresh one organization, retaining legacy name-only cache identities where assigned."""
+    archived_repos = _archived_codecov_repositories(owner, keys)
 
     headers = {
         'Accept': 'application/json',
