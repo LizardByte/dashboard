@@ -82,7 +82,7 @@ describe('dashboard.js', () => {
         buildDom();
         globalThis.DASHBOARD_CONFIG = { base_path: '/dashboard' };
         globalThis.matchMedia = jest.fn(() => ({ matches: false }));
-        globalThis.Plotly = { newPlot: jest.fn() };
+        globalThis.Plotly = { newPlot: jest.fn(), purge: jest.fn() };
         globalThis.DataTable = undefined;
         globalThis.getComputedStyle = jest.fn(() => ({ getPropertyValue: () => '#fff' }));
         globalThis.fetch = jest.fn(async () => ({ ok: true, json: async () => ({}) }));
@@ -243,7 +243,8 @@ describe('dashboard.js', () => {
         ];
 
         const draw = jest.fn();
-        const dtCtor = jest.fn(() => ({ draw }));
+        const destroy = jest.fn();
+        const dtCtor = jest.fn(() => ({ draw, destroy }));
         dtCtor.ext = { search: [] };
         globalThis.DataTable = dtCtor;
 
@@ -264,6 +265,8 @@ describe('dashboard.js', () => {
 
         globalThis.DataTable = undefined;
         mod.renderPRTable(prs);
+        expect(destroy).toHaveBeenCalledTimes(1);
+        expect(dtCtor.ext.search).toEqual([]);
 
         const fallbackInput = document.querySelector('#table-prs thead tr:nth-child(2) input');
         fallbackInput.value = 'none';
@@ -440,6 +443,70 @@ describe('dashboard.js', () => {
 
         document.getElementById('loading-msg').remove();
         await mod.loadDashboard();
+    });
+
+    test('organization selection scopes same-name repos, PR links and history, clearing empty charts', async () => {
+        document.body.insertAdjacentHTML('beforeend', `
+            <select id="organization-filter"></select><p id="collection-status" hidden></p>`);
+        const repos = ['Second', 'First'].map(owner => ({
+            ...sampleRepos()[0], name: `${owner}/demo`, owner,
+        }));
+        repos.push({ ...sampleRepos()[0], name: 'Empty/archived', owner: 'Empty', archived: true });
+        const data = {
+            'repos.json': repos,
+            'prs.json': repos.slice(0, 2).map(repo => ({ repo: repo.name, number: 1 })),
+            'metadata.json': { updated_at: '2026-11-07', registry_fresh: true },
+            'star_history.json': repos.map(repo => ({ repo: repo.name, date: '2026-11-01', stars: 10 })),
+            'coverage_history.json': repos.map(repo => ({ repo: repo.name, date: '2026-11-01', coverage: 90 })),
+            'code_scanning_history.json': repos.map(repo => ({ repo: repo.name, date: '2026-11-01', open: 1 })),
+            'commit_activity.json': repos.map(repo => ({ repo: repo.name, week: '2026-11-01', total: 3 })),
+        };
+        globalThis.fetch.mockImplementation(async url => ({
+            ok: url.split('/').at(-1) in data,
+            json: async () => data[url.split('/').at(-1)],
+        }));
+        await mod.loadDashboard();
+        const select = document.getElementById('organization-filter');
+        expect(Array.from(select.options).map(option => option.textContent))
+            .toEqual(['All organizations', 'Empty', 'First', 'Second']);
+        expect(document.querySelectorAll('#table-prs tbody tr')).toHaveLength(2);
+        expect(document.querySelector('#table-prs a').href).toBe('https://github.com/Second/demo/pull/1');
+        globalThis.Plotly.newPlot.mockClear();
+        select.value = 'First';
+        select.dispatchEvent(new Event('change'));
+        expect(document.querySelectorAll('#table-prs tbody tr')).toHaveLength(1);
+        expect(document.querySelector('#table-prs a').href).toBe('https://github.com/First/demo/pull/1');
+        for (const id of ['chart-star-history', 'chart-coverage-history', 'chart-code-scanning-history',
+            'chart-commit-activity-repos']) {
+            const [, traces] = globalThis.Plotly.newPlot.mock.calls.find(([chart]) => chart === id);
+            expect(traces.map(trace => trace.name)).toEqual(['First/demo']);
+        }
+        expect(document.getElementById('collection-status').hidden).toBe(true);
+        select.value = 'Empty';
+        document.getElementById('chart-stars').textContent = 'old chart';
+        select.dispatchEvent(new Event('change'));
+        expect(document.querySelectorAll('#table-prs tbody tr')).toHaveLength(0);
+        expect(document.getElementById('chart-stars').textContent).toBe('');
+        expect(globalThis.Plotly.purge).toHaveBeenCalledWith(document.getElementById('chart-stars'));
+        expect(globalThis.Plotly.purge).not.toHaveBeenCalledWith(document.getElementById('chart-azure-signing'));
+    });
+
+    test('organization controls tolerate legacy records and report partial collections', () => {
+        document.body.insertAdjacentHTML('beforeend', `
+            <select id="organization-filter"></select><p id="collection-status"></p>`);
+        mod.configureOrganizations([...sampleRepos(), { owner: 'First' }, { owner: 'First' }], jest.fn());
+        expect(document.querySelectorAll('#organization-filter option')).toHaveLength(2);
+        const status = document.getElementById('collection-status');
+        mod.renderCollectionStatus({});
+        expect(status.hidden).toBe(true);
+        mod.renderCollectionStatus({ registry_fresh: false, organization_status: [
+            { name: 'First', status: 'stale' }, { name: 'Second', status: 'ok', codecov_status: 'stale' },
+            { name: 'Third', status: 'ok', codecov_status: 'ok' },
+        ] });
+        expect(status.hidden).toBe(false);
+        expect(status.textContent).toContain('organization list could not be refreshed');
+        expect(status.textContent).toContain('First, Second');
+        expect(status.textContent).not.toContain('Third');
     });
 
     test('DOMContentLoaded listener runs loadDashboard', async () => {

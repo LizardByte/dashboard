@@ -104,7 +104,7 @@ def test_datetime_and_active_repo_helpers():
 
 def test_cache_helpers(monkeypatch, tmp_path):
     now = datetime(2026, 3, 20, tzinfo=timezone.utc)
-    assert pr_metrics.cache_path(str(tmp_path), 'x/demo').endswith(('prMetrics\\demo', 'prMetrics/demo'))
+    assert pr_metrics.cache_path(str(tmp_path), 'x/demo').endswith(('prMetrics\\x\\demo', 'prMetrics/x/demo'))
     assert pr_metrics.load_cache(str(tmp_path), 'demo') is None
     assert not pr_metrics.cache_is_fresh(None, now)
 

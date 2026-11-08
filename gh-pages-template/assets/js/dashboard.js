@@ -49,6 +49,36 @@ function activeRepos(repos) {
     return repos.filter(r => !r.archived && !(r.topics || []).includes('package-manager'));
 }
 
+function configureOrganizations(repos, render) {
+    const select = document.getElementById('organization-filter');
+    if (!select) return;
+    select.replaceChildren(new Option('All organizations', ''));
+    const owners = [...new Set(repos.map(repo => repo.owner).filter(Boolean))].sort();
+    owners.forEach(owner => select.add(new Option(owner, owner)));
+    select.onchange = render;
+}
+
+function renderCollectionStatus(metadata) {
+    const status = document.getElementById('collection-status');
+    if (!status) return;
+    const stale = (metadata.organization_status || [])
+        .filter(org => org.status !== 'ok' || org.codecov_status === 'stale')
+        .map(org => org.name);
+    const messages = [];
+    if (metadata.registry_fresh === false) messages.push('The organization list could not be refreshed.');
+    if (stale.length) messages.push(`Some data could not be refreshed for ${stale.join(', ')}.`);
+    status.hidden = messages.length === 0;
+    status.textContent = messages.length ? `${messages.join(' ')} Showing available cached data.` : '';
+}
+
+function clearRepositoryCharts() {
+    document.querySelectorAll('[id^="chart-"]').forEach(element => {
+        if (element.id === 'chart-azure-signing') return;
+        Plotly.purge(element);
+        element.replaceChildren();
+    });
+}
+
 // Summary
 function renderSummary(active, prs, metadata) {
     const el = document.getElementById('summary-stats');
@@ -219,10 +249,12 @@ function stripTags(html) {
 function renderPRTable(prs) {
     const container = document.getElementById('table-prs');
     if (!container) return;
+    if (container.cleanupDataTable) container.cleanupDataTable();
     const cols = ['Repo', '#', 'Title', 'Author', 'Labels', 'Assignees', 'Status', 'Created', 'Last Activity', 'Milestone'];
     let rows = '';
     prs.forEach(pr => {
-        const link = `<a href="https://github.com/LizardByte/${pr.repo}/pull/${pr.number}" target="_blank" rel="noopener">#${pr.number}</a>`;
+        const repository = pr.repo.includes('/') ? pr.repo : `LizardByte/${pr.repo}`;
+        const link = `<a href="https://github.com/${repository}/pull/${pr.number}" target="_blank" rel="noopener">#${pr.number}</a>`;
         rows += `<tr>
             <td>${pr.repo}</td>
             <td>${link}</td>
@@ -252,14 +284,16 @@ function renderPRTable(prs) {
 
     if (typeof DataTable !== 'undefined') {
         const filterValues = new Array(cols.length).fill('');
-        DataTable.ext.search.push((settings, rowData) => {
+        const filters = DataTable.ext.search;
+        const columnFilter = (settings, rowData) => {
             if (settings.nTable.id !== 'pr-datatable') return true;
             return filterValues.every((val, i) => {
                 if (!val) return true;
                 /* istanbul ignore next */
                 return stripTags(String(rowData[i] || '')).toLowerCase().includes(val.toLowerCase());
             });
-        });
+        };
+        filters.push(columnFilter);
         const dt = new DataTable('#pr-datatable', {
             pageLength: 10,
             lengthMenu: [10, 25, 50, 100],
@@ -282,6 +316,11 @@ function renderPRTable(prs) {
                 bottomEnd: 'paging',
             },
         });
+        container.cleanupDataTable = () => {
+            dt.destroy();
+            filters.splice(filters.indexOf(columnFilter), 1);
+            container.cleanupDataTable = null;
+        };
         filterInputs.forEach((input, i) => {
             input.addEventListener('input', () => {
                 filterValues[i] = input.value;
@@ -690,43 +729,52 @@ async function loadDashboard() {
             fetchJSON('azure_signing.json').catch(() => null),
         ]);
 
-        const active = activeRepos(repos);
-        const activePRs = prs.filter(pr => active.some(r => r.name === pr.repo));
+        const render = () => {
+            clearRepositoryCharts();
+            const organization = document.getElementById('organization-filter')?.value || '';
+            const active = activeRepos(repos).filter(repo => !organization || repo.owner === organization);
+            const scopedHistory = points => organization
+                ? points.filter(point => active.some(repo => repo.name === point.repo)) : points;
+            const activePRs = prs.filter(pr => active.some(r => r.name === pr.repo));
 
-        // Patch repos whose current coverage is 0 using their latest history value
-        if (coverageHistory.length) {
-            const latestByRepo = {};
-            coverageHistory.forEach(({ repo, date, coverage }) => {
-                if (!latestByRepo[repo] || date > latestByRepo[repo].date) {
-                    latestByRepo[repo] = { date, coverage };
-                }
-            });
-            active.forEach(r => {
-                if (!r.coverage && latestByRepo[r.name]) {
-                    r.coverage = latestByRepo[r.name].coverage;
-                }
-            });
-        }
+            // Patch repos whose current coverage is 0 using their latest history value
+            if (coverageHistory.length) {
+                const latestByRepo = {};
+                coverageHistory.forEach(({ repo, date, coverage }) => {
+                    if (!latestByRepo[repo] || date > latestByRepo[repo].date) {
+                        latestByRepo[repo] = { date, coverage };
+                    }
+                });
+                active.forEach(r => {
+                    if (!r.coverage && latestByRepo[r.name]) {
+                        r.coverage = latestByRepo[r.name].coverage;
+                    }
+                });
+            }
 
-        if (loadingEl) loadingEl.style.display = 'none';
-        if (contentEl) contentEl.style.display = '';
+            if (loadingEl) loadingEl.style.display = 'none';
+            if (contentEl) contentEl.style.display = '';
 
-        renderSummary(active, activePRs, metadata);
-        renderBarChart('chart-stars', active.map(r => ({ name: r.name, value: r.stars })));
-        renderStarHistory(starHistory);
-        renderBarChart('chart-forks', active.map(r => ({ name: r.name, value: r.forks })));
-        renderIssuesBarChart(active);
-        renderBarChart('chart-code-scanning', active.map(r => ({ name: r.name, value: r.code_scanning_open || 0 })));
-        renderCodeScanningHistory(codeScanningHistory);
-        renderPRsBarChart(active, activePRs);
-        renderPRTable(activePRs);
-        renderLicenseChart(active);
-        renderCoverageChart(active);
-        renderCoverageHistory(coverageHistory);
-        renderLanguageCharts(active);
-        renderCommitActivityChart(commitActivity, active);
-        renderDocsChart(active);
-        renderAzureSigning(azureSigning);
+            renderSummary(active, activePRs, metadata);
+            renderBarChart('chart-stars', active.map(r => ({ name: r.name, value: r.stars })));
+            renderStarHistory(scopedHistory(starHistory));
+            renderBarChart('chart-forks', active.map(r => ({ name: r.name, value: r.forks })));
+            renderIssuesBarChart(active);
+            renderBarChart('chart-code-scanning', active.map(r => ({ name: r.name, value: r.code_scanning_open || 0 })));
+            renderCodeScanningHistory(scopedHistory(codeScanningHistory));
+            renderPRsBarChart(active, activePRs);
+            renderPRTable(activePRs);
+            renderLicenseChart(active);
+            renderCoverageChart(active);
+            renderCoverageHistory(scopedHistory(coverageHistory));
+            renderLanguageCharts(active);
+            renderCommitActivityChart(commitActivity, active);
+            renderDocsChart(active);
+            renderAzureSigning(azureSigning);
+        };
+        configureOrganizations(repos, render);
+        renderCollectionStatus(metadata);
+        render();
 
     } catch (err) {
         if (loadingEl) loadingEl.innerHTML =
@@ -763,5 +811,7 @@ if (typeof module !== 'undefined' && module.exports) {
         renderDocsChart,
         renderAzureSigning,
         loadDashboard,
+        configureOrganizations,
+        renderCollectionStatus,
     };
 }

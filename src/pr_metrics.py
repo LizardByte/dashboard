@@ -9,7 +9,7 @@ from statistics import median
 from urllib.parse import quote_plus
 
 # local imports
-from src import helpers
+from src import helpers, catalog
 
 GRAPHQL_URL = 'https://api.github.com/graphql'
 GITHUB_OWNER = 'LizardByte'
@@ -119,7 +119,7 @@ def is_active_repo(repo: dict) -> bool:
 
 def cache_path(base_dir: str, repository: str) -> str:
     """Return the cache path without its JSON extension."""
-    return os.path.join(base_dir, 'github', 'prMetrics', os.path.basename(repository))
+    return os.path.join(base_dir, 'github', 'prMetrics', catalog.safe_key(repository))
 
 
 def load_cache(base_dir: str, repository: str) -> dict | None:
@@ -246,7 +246,8 @@ def _fetch_connection(
             if cutoff and updated_at and updated_at < cutoff:
                 reached_cutoff = True
                 break
-            pulls.append(_normalize_pull(repository.name, pull))
+            name = catalog.full_name(getattr(repository, 'raw_data', {'name': repository.name}))
+            pulls.append(_normalize_pull(name, pull))
 
         page_info = connection.get('pageInfo') or {}
         if reached_cutoff or not page_info.get('hasNextPage'):
@@ -270,15 +271,16 @@ def fetch_repository(repository, headers: dict, session, now: datetime) -> list[
 def refresh_repository(repository, base_dir: str, headers: dict, session, now: datetime | None = None) -> bool:
     """Refresh one repository cache when stale, returning whether it was written."""
     now = now or datetime.now(tz=timezone.utc)
-    existing = load_cache(base_dir, repository.name)
+    key = catalog.cache_key(repository)
+    existing = load_cache(base_dir, key)
     if cache_is_fresh(existing, now):
         return False
 
     pulls = fetch_repository(repository, headers, session, now)
     helpers.write_json_files(
-        file_path=cache_path(base_dir, repository.name),
+        file_path=cache_path(base_dir, key),
         data={
-            'repository': repository.name,
+            'repository': catalog.full_name(getattr(repository, 'raw_data', {'name': repository.name})),
             'collected_at': now.isoformat(),
             'cache_version': CACHE_VERSION,
             'history_days': HISTORY_DAYS,
@@ -432,14 +434,19 @@ def _markdown_text(value: object) -> str:
     )
 
 
-def _github_search(repository: str | None, qualifiers: list[str]) -> str:
+def _github_search(repository: str | list[str] | None, qualifiers: list[str]) -> str:
     """Build a GitHub pull-request search URL for an organization or repository."""
-    scope = f'repo:{GITHUB_OWNER}/{repository}' if repository else f'org:{GITHUB_OWNER}'
+    if isinstance(repository, list):
+        scope = ' '.join(f'org:{name}' for name in repository)
+    elif repository:
+        scope = f'repo:{repository}' if '/' in repository else f'repo:{GITHUB_OWNER}/{repository}'
+    else:
+        scope = f'org:{GITHUB_OWNER}'
     query = ' '.join(['is:pr', scope, *qualifiers])
     return f'https://github.com/pulls?q={quote_plus(query)}'
 
 
-def _metric_link(value: int, repository: str | None, *qualifiers: str) -> str:
+def _metric_link(value: int, repository: str | list[str] | None, *qualifiers: str) -> str:
     """Link a displayed metric count to the closest matching GitHub search."""
     return f'[{value}]({_github_search(repository, list(qualifiers))})'
 
@@ -596,6 +603,8 @@ def render_repository_page(repository: str, cache: dict | None, now: datetime) -
 
 def render_index_page(caches: dict[str, dict | None], now: datetime) -> str:
     """Render the organization-wide Jekyll Markdown report."""
+    organizations = sorted({name.split('/')[0] if '/' in name else GITHUB_OWNER for name in caches})
+    organizations = organizations or [GITHUB_OWNER]
     all_pulls = [
         pull
         for cache in caches.values()
@@ -605,13 +614,13 @@ def render_index_page(caches: dict[str, dict | None], now: datetime) -> str:
     report_cutoff = _search_timestamp(_window_cutoff(now, REPORT_DAYS))
     stale_cutoff = _search_timestamp(_window_cutoff(now, STALE_DAYS))
     overview_links = {
-        'open': _metric_link(totals['open'], None, SEARCH_OPEN),
-        'draft': _metric_link(totals['draft'], None, SEARCH_OPEN, SEARCH_DRAFT),
+        'open': _metric_link(totals['open'], organizations, SEARCH_OPEN),
+        'draft': _metric_link(totals['draft'], organizations, SEARCH_OPEN, SEARCH_DRAFT),
         'not_reviewed': _metric_link(
-            totals['not_reviewed'], None, SEARCH_OPEN, SEARCH_READY, SEARCH_NO_REVIEW),
+            totals['not_reviewed'], organizations, SEARCH_OPEN, SEARCH_READY, SEARCH_NO_REVIEW),
         'approval': str(totals['awaiting_approval']),
-        'stale': _metric_link(totals['stale'], None, SEARCH_OPEN, f'updated:<{stale_cutoff}'),
-        'merged': _metric_link(totals['merged'], None, SEARCH_MERGED, f'merged:>={report_cutoff}'),
+        'stale': _metric_link(totals['stale'], organizations, SEARCH_OPEN, f'updated:<{stale_cutoff}'),
+        'merged': _metric_link(totals['merged'], organizations, SEARCH_MERGED, f'merged:>={report_cutoff}'),
     }
     lines = [
         '---',
@@ -672,20 +681,25 @@ def render_index_page(caches: dict[str, dict | None], now: datetime) -> str:
     return '\n'.join(lines)
 
 
-def write_report_pages(template_dir: str, caches: dict[str, dict | None], now: datetime) -> None:
+def write_report_pages(template_dir: str, caches: dict[str, dict | None], now: datetime,
+                       aliases: dict[str, str] | None = None) -> None:
     """Write the organization index and all repository report pages."""
     report_dir = Path(template_dir) / 'pr-metrics'
     report_dir.mkdir(parents=True, exist_ok=True)
     expected = {'index.md'}
-    for repository, cache in caches.items():
-        filename = f'{os.path.basename(repository)}.md'
+    pages = {**{name: name for name in caches}, **(aliases or {})}
+    for route, repository in pages.items():
+        filename = f'{catalog.safe_key(route)}.md'
         expected.add(filename)
-        (report_dir / filename).write_text(
-            render_repository_page(repository, cache, now),
+        destination = report_dir / filename
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_text(
+            render_repository_page(repository, caches[repository], now).replace(
+                f'permalink: /pr-metrics/{repository}/', f'permalink: /pr-metrics/{route}/'),
             encoding='utf-8',
         )
     (report_dir / 'index.md').write_text(render_index_page(caches, now), encoding='utf-8')
 
-    for existing in report_dir.glob('*.md'):
-        if existing.name not in expected:
+    for existing in report_dir.rglob('*.md'):
+        if str(existing.relative_to(report_dir)) not in expected:
             existing.unlink()

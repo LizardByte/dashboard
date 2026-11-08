@@ -5,6 +5,7 @@ import os
 from queue import Queue
 from datetime import datetime, timedelta, timezone
 from threading import Thread
+from urllib.parse import urlparse
 
 # lib imports
 from github import Auth, Github
@@ -18,6 +19,7 @@ from src import BASE_DIR
 from src import helpers
 from src import pr_metrics
 from src import azure_signing
+from src import catalog
 from src.logger import log
 
 COMMIT_ACTIVITY_READY = 'ready'
@@ -119,16 +121,42 @@ def _build_codecov_shields_badge(data: dict) -> dict:
     }
 
 
-def update_codecov():
-    """
-    Get code coverage data from Codecov API.
-    """
+def _codecov_repositories(base_url: str, headers: dict):
+    """Paginate one org's public Codecov inventory without trusting cross-service next links."""
+    url = f'{base_url}/repos?page_size=500'
+    while url:
+        response = helpers.s.get(url=url, headers=headers)
+        try:
+            data = response.json()
+        except requests.exceptions.JSONDecodeError as error:
+            raise requests.exceptions.HTTPError('Invalid Codecov repository response') from error
+        if response.status_code != 200:
+            raise requests.exceptions.HTTPError(f'Codecov repository request failed (HTTP {response.status_code})')
+        yield from data['results']
+        url = data.get('next')
+        if url:
+            normalized = url.replace('https://api.codecov.io/', 'https://codecov.io/')
+            endpoint = urlparse(normalized)._replace(query='', fragment='').geturl().rstrip('/')
+            if endpoint != f'{base_url}/repos':
+                raise ValueError('Invalid Codecov pagination URL')
+
+
+def _merge_coverage_history(path: str, incoming: list) -> list:
+    """Keep historical source-org coverage when a destination Codecov project starts a new series."""
+    previous = catalog.read_json(f'{path}.json', [])
+    points = {entry['timestamp']: entry for entry in [*previous, *incoming] if entry.get('timestamp')}
+    return sorted(points.values(), key=lambda entry: entry['timestamp'])
+
+
+def _update_codecov_org(owner: str, keys: dict | None = None):
+    """Refresh one organization, retaining legacy name-only cache identities where assigned."""
     archived_repos = set()
     repos_path = os.path.join(BASE_DIR, 'github', 'repos.json')
     if os.path.exists(repos_path):
         try:
             with open(repos_path) as f:
-                archived_repos = {r['name'] for r in json.load(f) if r.get('archived')}
+                archived_repos = {r['name'] for r in json.load(f) if r.get('archived')
+                                  and (keys is None or catalog.full_name(r).split('/')[0] == owner)}
         except Exception as e:
             log.warning(f'Could not load GitHub repos for archived check: {e}')
 
@@ -136,39 +164,30 @@ def update_codecov():
         'Accept': 'application/json',
         'Authorization': f'bearer {os.environ["CODECOV_TOKEN"]}',
     }
-    base_url = f'https://codecov.io/api/v2/github/{os.environ["GITHUB_REPOSITORY_OWNER"]}'
-
-    url = f'{base_url}/repos?page_size=500'
-
-    response = helpers.s.get(url=url, headers=headers)
-    try:
-        data = response.json()
-    except requests.exceptions.JSONDecodeError:
-        log.error(f'Error: update_codecov: {response.text}')
-        raise requests.exceptions.HTTPError(f'Error: {response.text}')
-
-    if response.status_code != 200:
-        log.error(f'Error: update_codecov: {data["detail"]}')
-        raise requests.exceptions.HTTPError(f'Error: {data["detail"]}')
-
-    assert data['next'] is None, 'More than 500 repos found, need to implement pagination.'
+    base_url = f'https://codecov.io/api/v2/github/{owner}'
+    fresh = True
 
     for repo in tqdm(
-            iterable=data['results'],
+            iterable=_codecov_repositories(base_url, headers),
             desc='Updating Codecov data',
     ):
-        if repo['name'] in archived_repos:
+        if repo['name'] in archived_repos or (keys is not None and repo['name'] not in keys):
             continue
+        key = catalog.cache_key(keys[repo['name']]) if keys is not None else repo['name']
 
         # Get repo details
         url = f'{base_url}/repos/{repo["name"]}'
         response = helpers.s.get(url=url, headers=headers)
         data = response.json()
+        if response.status_code != 200:
+            log.warning(f'Codecov data unavailable for {owner}/{repo["name"]}; retaining cached data.')
+            fresh = False
+            continue
 
-        file_path = os.path.join(BASE_DIR, 'codecov', repo['name'])
+        file_path = os.path.join(BASE_DIR, 'codecov', key)
         helpers.write_json_files(file_path=file_path, data=data)
 
-        badge_path = os.path.join(BASE_DIR, 'shields', 'codecov', repo['name'])
+        badge_path = os.path.join(BASE_DIR, 'shields', 'codecov', key)
         helpers.write_json_files(file_path=badge_path, data=_build_codecov_shields_badge(data))
 
         # Get coverage trend data
@@ -176,8 +195,28 @@ def update_codecov():
 
         # Save coverage trend data
         if coverage_trend_data:
-            coverage_trend_path = os.path.join(BASE_DIR, 'codecov', f'{repo["name"]}_coverage_trend')
-            helpers.write_json_files(file_path=coverage_trend_path, data=coverage_trend_data)
+            coverage_trend_path = os.path.join(BASE_DIR, 'codecov', f'{key}_coverage_trend')
+            helpers.write_json_files(file_path=coverage_trend_path,
+                                     data=_merge_coverage_history(coverage_trend_path, coverage_trend_data))
+    return fresh
+
+
+def update_codecov():
+    """Collect coverage separately for each discovered org, preserving failed-org caches."""
+    state = catalog.read_json(os.path.join(BASE_DIR, 'github', 'catalog.json'), None)
+    if state is None:
+        return _update_codecov_org(os.environ['GITHUB_REPOSITORY_OWNER'])
+    records = catalog.read_json(os.path.join(BASE_DIR, 'github', 'repos.json'), [])
+    for org in state['organizations']:
+        keys = {repo['name']: repo for repo in records
+                if catalog.full_name(repo).split('/')[0].lower() == org['name'].lower() and not repo.get('private')}
+        try:
+            fresh = _update_codecov_org(org['name'], keys)
+            org['codecov_status'] = 'ok' if fresh else 'stale'
+        except Exception:
+            org['codecov_status'] = 'stale'
+            log.warning(f'Codecov organization {org["name"]} unavailable; retaining its cached data.')
+    helpers.write_json_files(os.path.join(BASE_DIR, 'github', 'catalog'), state)
 
 
 def update_discord():
@@ -265,7 +304,7 @@ def _commit_activity_cache_path(repo) -> str:
     str
         File path without the ``.json`` extension.
     """
-    return os.path.join(BASE_DIR, 'github', 'commitActivity', repo.name)
+    return os.path.join(BASE_DIR, 'github', 'commitActivity', catalog.cache_key(repo))
 
 
 def _commit_activity_hash_cache_path(repo) -> str:
@@ -282,7 +321,7 @@ def _commit_activity_hash_cache_path(repo) -> str:
     str
         File path without the ``.json`` extension.
     """
-    return os.path.join(BASE_DIR, 'github', 'commitActivityHashes', repo.name)
+    return os.path.join(BASE_DIR, 'github', 'commitActivityHashes', catalog.cache_key(repo))
 
 
 def _has_cached_commit_activity(repo) -> bool:
@@ -585,7 +624,7 @@ def _collect_star_history(repo, initial_samples: int = 5) -> list:
         return []
 
     today = datetime.now(tz=timezone.utc).strftime('%Y-%m-%d')
-    cache_path = os.path.join(BASE_DIR, 'github', 'starHistory', f'{repo.name}.json')
+    cache_path = os.path.join(BASE_DIR, 'github', 'starHistory', f'{catalog.cache_key(repo)}.json')
 
     existing = []
     if os.path.exists(cache_path):
@@ -608,7 +647,7 @@ def _collect_star_history(repo, initial_samples: int = 5) -> list:
     return history
 
 
-def _fetch_code_scanning_alerts(repo) -> list:
+def _fetch_code_scanning_alerts(repo) -> list | None:
     """
     Fetch all code scanning alerts for a repository.
 
@@ -619,8 +658,8 @@ def _fetch_code_scanning_alerts(repo) -> list:
 
     Returns
     -------
-    list
-        List of alert objects, or an empty list when unavailable.
+    list | None
+        Alert objects, or None when analysis is unavailable; retain existing caches in that case.
     """
     try:
         alerts = list(repo.get_codescan_alerts())
@@ -628,7 +667,8 @@ def _fetch_code_scanning_alerts(repo) -> list:
     except GithubException as e:
         if e.status == 404:
             log.warning(f'No code scanning analysis for {repo.name}, skipping code scanning alerts.')
-        return []
+            return None
+        raise
 
 
 def _alert_dates(alert) -> set:
@@ -911,19 +951,19 @@ def _process_github_repo(repo, headers: dict, graphql_url: str) -> None:
     # languages
     languages = _run_github_repo_step(repo, 'languages', repo.get_languages)
     if languages is not None:
-        file_path = os.path.join(BASE_DIR, 'github', 'languages', repo.name)
+        file_path = os.path.join(BASE_DIR, 'github', 'languages', catalog.cache_key(repo))
         helpers.write_json_files(file_path=file_path, data=languages)
 
     # open pull requests
     pulls_data = _run_github_repo_step(repo, 'pull requests', lambda: _collect_open_pulls(repo))
     if pulls_data is not None:
-        file_path = os.path.join(BASE_DIR, 'github', 'pulls', repo.name)
+        file_path = os.path.join(BASE_DIR, 'github', 'pulls', catalog.cache_key(repo))
         helpers.write_json_files(file_path=file_path, data=pulls_data)
 
     # open issues
     issues_data = _run_github_repo_step(repo, 'issues', lambda: _collect_open_issues(repo))
     if issues_data is not None:
-        file_path = os.path.join(BASE_DIR, 'github', 'issues', repo.name)
+        file_path = os.path.join(BASE_DIR, 'github', 'issues', catalog.cache_key(repo))
         helpers.write_json_files(file_path=file_path, data=issues_data)
 
     # open code scanning alerts and per-day history
@@ -932,7 +972,7 @@ def _process_github_repo(repo, headers: dict, graphql_url: str) -> None:
         open_alert_count = sum(
             1 for a in alerts if getattr(a, 'state', None) == 'open'
         )
-        file_path = os.path.join(BASE_DIR, 'github', 'codeScanning', repo.name)
+        file_path = os.path.join(BASE_DIR, 'github', 'codeScanning', catalog.cache_key(repo))
         helpers.write_json_files(file_path=file_path, data={
             'repo': repo.name,
             'open': open_alert_count,
@@ -940,13 +980,13 @@ def _process_github_repo(repo, headers: dict, graphql_url: str) -> None:
         })
 
         code_scanning_history = _build_code_scanning_history(alerts)
-        file_path = os.path.join(BASE_DIR, 'github', 'codeScanningHistory', repo.name)
+        file_path = os.path.join(BASE_DIR, 'github', 'codeScanningHistory', catalog.cache_key(repo))
         helpers.write_json_files(file_path=file_path, data=code_scanning_history)
 
     # star history (sampled to cap API calls)
     star_history = _run_github_repo_step(repo, 'star history', lambda: _collect_star_history(repo))
     if star_history:
-        file_path = os.path.join(BASE_DIR, 'github', 'starHistory', repo.name)
+        file_path = os.path.join(BASE_DIR, 'github', 'starHistory', catalog.cache_key(repo))
         helpers.write_json_files(file_path=file_path, data=star_history)
 
     # openGraphImages - uses GraphQL
@@ -956,7 +996,7 @@ def _process_github_repo(repo, headers: dict, graphql_url: str) -> None:
         lambda: _fetch_open_graph_image_url(repo, headers, graphql_url),
     )
     if image_url and 'avatars' not in image_url:
-        file_path = os.path.join(BASE_DIR, 'github', 'openGraphImages', repo.name)
+        file_path = os.path.join(BASE_DIR, 'github', 'openGraphImages', catalog.cache_key(repo))
         _run_github_repo_step(
             repo,
             'OpenGraph image download',
@@ -978,19 +1018,7 @@ def update_github():
     g = Github(auth=Auth.Token(os.environ["GITHUB_TOKEN"]), timeout=30)
     g.per_page = 100
 
-    # Get the user/organization
-    owner = g.get_user(os.environ["GITHUB_REPOSITORY_OWNER"])
-
-    # Get all repositories
-    repos = list(owner.get_repos())
-
-    # Convert PyGithub repo objects to dict format for JSON serialization
-    repos_data = []
-    for repo in repos:
-        repos_data.append(repo.raw_data)
-
-    file_path = os.path.join(BASE_DIR, 'github', 'repos')
-    helpers.write_json_files(file_path=file_path, data=repos_data)
+    repos, _ = catalog.discover(g, BASE_DIR)
 
     # GraphQL query still uses direct requests
     headers = {
@@ -1084,7 +1112,7 @@ def update_readthedocs():
             desc='Updating Readthedocs data',
     ):
         git_url = project['repository']['url']
-        repo_name = git_url.rsplit('/', 1)[-1].rsplit('.git', 1)[0]
+        repo_name = catalog.documentation_key(BASE_DIR, git_url)
 
         skip_links = [
             'builds',  # skip builds, too much data and too slow
@@ -1142,15 +1170,8 @@ def update():
         target=update_patreon,
         threads=independent_threads,
     )
-    append_thread_if_env_set(
-        env_vars=['READTHEDOCS_TOKEN'],
-        name='readthedocs',
-        target=update_readthedocs,
-        threads=independent_threads,
-    )
 
-    # GitHub must finish before Codecov so that repos.json is up to date and
-    # update_codecov() can correctly skip archived repos.
+    # Dependent collectors need current repository identities and archive flags.
     github_threads = []
     append_thread_if_env_set(
         env_vars=['GITHUB_TOKEN', 'GITHUB_REPOSITORY_OWNER'],
@@ -1159,12 +1180,18 @@ def update():
         threads=github_threads,
     )
 
-    codecov_threads = []
+    repository_threads = []
     append_thread_if_env_set(
         env_vars=['CODECOV_TOKEN', 'GITHUB_REPOSITORY_OWNER'],
         name='codecov',
         target=update_codecov,
-        threads=codecov_threads,
+        threads=repository_threads,
+    )
+    append_thread_if_env_set(
+        env_vars=['READTHEDOCS_TOKEN'],
+        name='readthedocs',
+        target=update_readthedocs,
+        threads=repository_threads,
     )
 
     # setup threading exception handling
@@ -1175,16 +1202,16 @@ def update():
     for thread in tqdm(iterable=independent_threads + github_threads, desc='Starting threads'):
         thread.start()
 
-    # Wait for GitHub before starting Codecov.
+    # Wait for GitHub identities before starting Codecov and Read the Docs.
     for thread in tqdm(iterable=github_threads, desc='Waiting for GitHub thread'):
         thread.join()
 
-    # Phase 2: start Codecov now that repos.json is fresh.
-    for thread in tqdm(iterable=codecov_threads, desc='Starting Codecov thread'):
+    # Phase 2: collect services using the refreshed repository identities.
+    for thread in tqdm(iterable=repository_threads, desc='Starting repository service threads'):
         thread.start()
 
     # Wait for all remaining threads.
-    for thread in tqdm(iterable=independent_threads + codecov_threads, desc='Waiting for threads to finish'):
+    for thread in tqdm(iterable=independent_threads + repository_threads, desc='Waiting for threads to finish'):
         thread.join()
 
     # deactivate threading exception handling

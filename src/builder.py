@@ -10,11 +10,12 @@ from src import BASE_DIR, TEMPLATE_DIR
 from src import helpers
 from src import pr_metrics
 from src import azure_signing
+from src import catalog
 from src.logger import log
 
 
 def _safe_name(name: str) -> str:
-    return os.path.basename(name)
+    return catalog.safe_key(name)
 
 
 def _load_rtd_repos(base_dir: str) -> set:
@@ -27,8 +28,9 @@ def _load_rtd_repos(base_dir: str) -> set:
             rtd_data = json.load(f)
         for project in rtd_data:
             git_url = project.get('repository', {}).get('url', '')
-            repo_name = git_url.rsplit('/', 1)[-1].rsplit('.git', 1)[0]
-            rtd_repos.add(repo_name)
+            repo_name = catalog.github_name(git_url)
+            if repo_name:
+                rtd_repos.add(repo_name.lower())
     except Exception:
         pass
     return rtd_repos
@@ -202,7 +204,7 @@ def _build_repo_entry(
         rtd_repos: set,
         code_scanning_open: int,
 ) -> dict:
-    name = repo['name']
+    name = catalog.full_name(repo)
     pr_count = len(prs)
     if issues is None:
         open_issues_total = repo.get('open_issues_count', 0)
@@ -224,6 +226,10 @@ def _build_repo_entry(
 
     return {
         'name': name,
+        'id': repo.get('id'),
+        'owner': (repo.get('owner') or {}).get('login'),
+        'full_name': name,
+        'html_url': repo.get('html_url'),
         'stars': repo.get('stargazers_count', 0),
         'forks': repo.get('forks_count', 0),
         'issues': issue_count,
@@ -238,7 +244,7 @@ def _build_repo_entry(
         'archived': repo.get('archived', False),
         'fork': repo.get('fork', False),
         'topics': repo.get('topics', []),
-        'has_readthedocs': name in rtd_repos,
+        'has_readthedocs': any(alias.lower() in rtd_repos for alias in [name, *repo.get('dashboard_aliases', [])]),
         'created_at': repo.get('created_at'),
         'updated_at': repo.get('updated_at'),
     }
@@ -272,21 +278,22 @@ def build():
         if repo.get('private') or repo.get('archived'):
             continue
 
-        name = repo['name']
-        coverage = _get_coverage(BASE_DIR, name)
-        coverage_hist = _collect_coverage_history(BASE_DIR, name)
-        coverage_history.extend(coverage_hist)
+        name = catalog.full_name(repo)
+        key = catalog.cache_key(repo)
+        coverage = _get_coverage(BASE_DIR, key)
+        coverage_hist = _collect_coverage_history(BASE_DIR, key)
+        coverage_history.extend({**entry, 'repo': name} for entry in coverage_hist)
         if not coverage and coverage_hist:
             coverage = max(coverage_hist, key=lambda e: e.get('date', '')).get('coverage', 0.0)
-        languages = _get_languages(BASE_DIR, name)
-        prs = _get_prs(BASE_DIR, name)
-        issues = _get_issues(BASE_DIR, name)
-        commit_activity.extend(_get_commit_activity(BASE_DIR, name))
-        star_history.extend(_get_star_history(BASE_DIR, name))
-        code_scanning_open = _get_code_scanning_open(BASE_DIR, name)
-        code_scanning_history.extend(_get_code_scanning_history(BASE_DIR, name))
+        languages = _get_languages(BASE_DIR, key)
+        prs = _get_prs(BASE_DIR, key)
+        issues = _get_issues(BASE_DIR, key)
+        commit_activity.extend({**entry, 'repo': name} for entry in _get_commit_activity(BASE_DIR, key))
+        star_history.extend({**entry, 'repo': name} for entry in _get_star_history(BASE_DIR, key))
+        code_scanning_open = _get_code_scanning_open(BASE_DIR, key)
+        code_scanning_history.extend({**entry, 'repo': name} for entry in _get_code_scanning_history(BASE_DIR, key))
         if pr_metrics.is_active_repo(repo):
-            pr_metric_caches[name] = pr_metrics.load_cache(BASE_DIR, name)
+            pr_metric_caches[name] = pr_metrics.load_cache(BASE_DIR, key)
 
         repos.append(_build_repo_entry(repo, coverage, languages, prs, issues, rtd_repos, code_scanning_open))
         prs_all.extend({'repo': name, **pr} for pr in prs)
@@ -309,11 +316,16 @@ def build():
     write_json('pr_metrics.json', pr_metric_caches)
     write_json('azure_signing.json', azure_signing.load_data(BASE_DIR))
     now = datetime.now(timezone.utc)
+    collection = catalog.read_json(os.path.join(BASE_DIR, 'github', 'catalog.json'), {})
     write_json('metadata.json', {
         'updated_at': now.isoformat(),
         'repo_count': len(repos),
+        'organization_status': collection.get('organizations', []),
+        'registry_fresh': collection.get('registry_fresh', True),
     })
-    pr_metrics.write_report_pages(TEMPLATE_DIR, pr_metric_caches, now)
+    aliases = {catalog.cache_key(repo): catalog.full_name(repo) for repo in raw_repos
+               if pr_metrics.is_active_repo(repo) and catalog.cache_key(repo) != catalog.full_name(repo)}
+    pr_metrics.write_report_pages(TEMPLATE_DIR, pr_metric_caches, now, aliases)
 
     log.info('Dashboard build complete.')
 
