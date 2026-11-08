@@ -49,6 +49,30 @@ function activeRepos(repos) {
     return repos.filter(r => !r.archived && !(r.topics || []).includes('package-manager'));
 }
 
+// Keep owner/name as the chart identity and shorten only the visible labels.
+function repositoryLabels(names) {
+    const unique = [...new Set(names)];
+    const counts = new Map();
+    unique.forEach(name => {
+        const short = name.split('/').at(-1).toLowerCase();
+        counts.set(short, (counts.get(short) || 0) + 1);
+    });
+    return new Map(unique.map(name => {
+        const short = name.split('/').at(-1);
+        const label = counts.get(short.toLowerCase()) > 1 && name.includes('/')
+            ? `${short}<br>${name.split('/')[0]}` : short;
+        return [name, label];
+    }));
+}
+
+function repositoryAxis(names) {
+    const labels = repositoryLabels(names);
+    return {
+        tickmode: 'array', tickvals: [...labels.keys()], ticktext: [...labels.values()],
+        tickangle: -45, automargin: true,
+    };
+}
+
 function configureOrganizations(repos, render) {
     const select = document.getElementById('organization-filter');
     if (!select) return;
@@ -111,12 +135,14 @@ function renderBarChart(divId, entries) {
         x: sorted.map(d => d.name),
         y: sorted.map(d => Math.log1p(d.value)),
         text: sorted.map(d => String(d.value)),
+        customdata: sorted.map(d => d.name),
+        hovertemplate: '%{customdata}<br>%{text}<extra></extra>',
         type: 'bar',
         textposition: 'inside',
         marker: { color: '#28a9e6' },
     }], themeLayout({
         yaxis: { showticklabels: false },
-        xaxis: { tickangle: -45 },
+        xaxis: repositoryAxis(sorted.map(d => d.name)),
     }), CONFIG);
 }
 
@@ -158,6 +184,8 @@ function renderIssuesBarChart(active) {
             x: scaled.map(r => r.name),
             y: scaled.map(r => r.otherScaled),
             text: scaled.map(r => (r.other ? String(r.other) : '')),
+            customdata: scaled.map(r => r.name),
+            hovertemplate: '%{customdata}<br>Other: %{text}<extra></extra>',
             type: 'bar',
             textposition: 'inside',
             marker: { color: '#28a9e6' },
@@ -167,6 +195,8 @@ function renderIssuesBarChart(active) {
             x: scaled.map(r => r.name),
             y: scaled.map(r => r.botScaled),
             text: scaled.map(r => (r.bot ? String(r.bot) : '')),
+            customdata: scaled.map(r => r.name),
+            hovertemplate: '%{customdata}<br>Bot: %{text}<extra></extra>',
             type: 'bar',
             textposition: 'inside',
             marker: { color: '#f59f00' },
@@ -174,7 +204,7 @@ function renderIssuesBarChart(active) {
     ], themeLayout({
         barmode: 'stack',
         yaxis: { showticklabels: false },
-        xaxis: { tickangle: -45 },
+        xaxis: repositoryAxis(scaled.map(r => r.name)),
     }), CONFIG);
 }
 
@@ -192,6 +222,7 @@ function renderStarHistory(history) {
         byRepo[repo].x.push(date);
         byRepo[repo].y.push(stars);
     });
+    const labels = repositoryLabels(Object.keys(byRepo));
     const traces = Object.entries(byRepo)
         .sort((a, b) => {
             /* istanbul ignore next */
@@ -199,7 +230,10 @@ function renderStarHistory(history) {
             const lastB = b[1].y.at(-1) ?? 0;
             return lastB - lastA;
         })
-        .map(([repo, d]) => ({ name: repo, x: d.x, y: d.y, mode: 'lines+markers', type: 'scatter' }));
+        .map(([repo, d]) => ({
+            name: labels.get(repo), meta: repo, x: d.x, y: d.y, mode: 'lines+markers', type: 'scatter',
+            hovertemplate: '%{meta}<br>%{x}<br>Stars: %{y}<extra></extra>',
+        }));
     Plotly.newPlot('chart-star-history', traces, themeLayout({
         yaxis: { title: 'Stars' },
         margin: { t: 30, r: 20, b: 60, l: 60 },
@@ -228,11 +262,13 @@ function renderPRsBarChart(active, prs) {
         x: sorted.map(r => r.name),
         y: sorted.map(r => r[status]),
         text: sorted.map(r => String(r[status])),
+        customdata: sorted.map(r => r.name),
+        hovertemplate: `%{customdata}<br>${status}: %{text}<extra></extra>`,
         type: 'bar',
         textposition: 'inside',
     })), themeLayout({
         barmode: 'stack',
-        xaxis: { tickangle: -45 },
+        xaxis: repositoryAxis(sorted.map(r => r.name)),
     }), CONFIG);
 }
 
@@ -429,27 +465,31 @@ function renderPRTable(prs) {
 
 // License treemap
 function renderLicenseChart(repos) {
+    const repoLabels = repositoryLabels(repos.map(repo => repo.name));
     const licRepos = {};
     repos.forEach(r => {
         const lic = r.license || 'No License';
         if (!licRepos[lic]) licRepos[lic] = [];
         licRepos[lic].push(r.name);
     });
-    const ids = [], labels = [], parents = [], values = [];
+    const ids = [], labels = [], parents = [], values = [], customdata = [];
     Object.entries(licRepos).forEach(([lic, rlist]) => {
         ids.push(`lic::${lic}`);
         labels.push(lic);
+        customdata.push(lic);
         parents.push('');
         values.push(rlist.length);
         rlist.forEach(name => {
             ids.push(`repo::${lic}::${name}`);
-            labels.push(name);
+            labels.push(repoLabels.get(name));
+            customdata.push(name);
             parents.push(`lic::${lic}`);
             values.push(1);
         });
     });
     Plotly.newPlot('chart-license', [{
-        type: 'treemap', ids, labels, parents, values,
+        type: 'treemap', ids, labels, parents, values, customdata,
+        hovertemplate: '%{customdata}<br>%{value}<extra></extra>',
         branchvalues: 'total',
         tiling: { squarifyratio: 1.618, pad: 2 },
         pathbar: { visible: false },
@@ -475,9 +515,10 @@ function renderCoverageChart(repos) {
             showscale: true,
         },
         text: sorted.map(r => `${r.name}: ${r.coverage.toFixed(1)}%`),
+        hovertemplate: '%{text}<extra></extra>',
     }], themeLayout({
         yaxis: { title: 'Coverage %', range: [0, 105] },
-        xaxis: { tickangle: -45 },
+        xaxis: repositoryAxis(sorted.map(r => r.name)),
     }), CONFIG);
 }
 
@@ -495,8 +536,10 @@ function renderCoverageHistory(history) {
         byRepo[repo].x.push(date);
         byRepo[repo].y.push(coverage);
     });
+    const labels = repositoryLabels(Object.keys(byRepo));
     const traces = Object.entries(byRepo).map(([repo, d]) => ({
-        name: repo, x: d.x, y: d.y, mode: 'lines', type: 'scatter',
+        name: labels.get(repo), meta: repo, x: d.x, y: d.y, mode: 'lines', type: 'scatter',
+        hovertemplate: '%{meta}<br>%{x}<br>Coverage: %{y}%<extra></extra>',
     }));
     Plotly.newPlot('chart-coverage-history', traces, themeLayout({
         yaxis: { title: 'Coverage %', range: [0, 100] },
@@ -517,6 +560,7 @@ function renderCodeScanningHistory(history) {
         byRepo[repo].x.push(date);
         byRepo[repo].y.push(open);
     });
+    const labels = repositoryLabels(Object.keys(byRepo));
     const traces = Object.entries(byRepo)
         .sort((a, b) => {
             const lastA = a[1].y.at(-1) ?? 0;
@@ -524,7 +568,9 @@ function renderCodeScanningHistory(history) {
             return lastB - lastA;
         })
         .map(([repo, d]) => ({
-            name: repo,
+            name: labels.get(repo),
+            meta: repo,
+            hovertemplate: '%{meta}<br>%{x}<br>Open alerts: %{y}<extra></extra>',
             x: d.x,
             y: d.y,
             mode: 'lines+markers',
@@ -538,23 +584,27 @@ function renderCodeScanningHistory(history) {
 
 // Language treemaps
 function treemap(data, valueFor) {
-    const ids = [], labels = [], parents = [], values = [];
+    const names = Object.values(data).flatMap(info => Array.isArray(info) ? info : Object.keys(info.repos));
+    const repoLabels = repositoryLabels(names);
+    const ids = [], labels = [], parents = [], values = [], customdata = [];
     const sorted = Object.entries(data).sort((a, b) => valueFor(b) - valueFor(a));
     /* istanbul ignore next */
     sorted.forEach(([lang, info]) => {
         ids.push(`L::${lang}`);
         labels.push(lang);
+        customdata.push(lang);
         parents.push('');
         values.push(valueFor([lang, info]));
         const rlist = Array.isArray(info) ? info : Object.keys(info.repos);
         rlist.forEach(name => {
             ids.push(`R::${lang}::${name}`);
-            labels.push(name);
+            labels.push(repoLabels.get(name));
+            customdata.push(name);
             parents.push(`L::${lang}`);
             values.push(Array.isArray(info) ? 1 : info.repos[name]);
         });
     });
-    return { ids, labels, parents, values };
+    return { ids, labels, parents, values, customdata };
 }
 
 function renderLanguageCharts(repos) {
@@ -571,6 +621,7 @@ function renderLanguageCharts(repos) {
 
     const treemapTrace = (data) => ({
         type: 'treemap', ...data,
+        hovertemplate: '%{customdata}<br>%{value}<extra></extra>',
         branchvalues: 'total',
         tiling: { squarifyratio: 1.618, pad: 2 },
         pathbar: { visible: false },
@@ -614,12 +665,15 @@ function renderCommitActivityChart(commitActivity, active) {
         byRepo[repo].x.push(week);
         byRepo[repo].y.push(total);
     });
+    const labels = repositoryLabels(Object.keys(byRepo));
     const repoTraces = Object.entries(byRepo)
         .filter(([, d]) => d.x.length > 0)
         .map(([repo, d]) => {
             const pairs = d.x.map((w, i) => [w, d.y[i]]).sort((a, b) => a[0].localeCompare(b[0]));
             return {
-                name: repo,
+                name: labels.get(repo),
+                meta: repo,
+                hovertemplate: '%{meta}<br>%{x}<br>Commits: %{y}<extra></extra>',
                 x: pairs.map(([w]) => w),
                 y: pairs.map(([, v]) => v),
                 mode: 'lines',
@@ -636,14 +690,17 @@ function renderCommitActivityChart(commitActivity, active) {
 
 // Docs treemap
 function renderDocsChart(repos) {
+    const repoLabels = repositoryLabels(repos.map(repo => repo.name));
     const hasRTD = repos.filter(r => r.has_readthedocs);
     const noRTD = repos.filter(r => !r.has_readthedocs);
     const ids = ['true', 'false',
         ...hasRTD.map(r => `y::${r.name}`),
         ...noRTD.map(r => `n::${r.name}`)];
     const labels = ['Has ReadTheDocs', 'No ReadTheDocs',
-        ...hasRTD.map(r => r.name),
-        ...noRTD.map(r => r.name)];
+        ...hasRTD.map(r => repoLabels.get(r.name)),
+        ...noRTD.map(r => repoLabels.get(r.name))];
+    const customdata = ['Has ReadTheDocs', 'No ReadTheDocs',
+        ...hasRTD.map(r => r.name), ...noRTD.map(r => r.name)];
     const parents = ['', '',
         ...hasRTD.map(() => 'true'),
         ...noRTD.map(() => 'false')];
@@ -651,7 +708,8 @@ function renderDocsChart(repos) {
         ...hasRTD.map(() => 1),
         ...noRTD.map(() => 1)];
     Plotly.newPlot('chart-docs', [{
-        type: 'treemap', ids, labels, parents, values,
+        type: 'treemap', ids, labels, parents, values, customdata,
+        hovertemplate: '%{customdata}<br>%{value}<extra></extra>',
         branchvalues: 'total',
         tiling: { squarifyratio: 1.618, pad: 2 },
         pathbar: { visible: false },
@@ -795,6 +853,7 @@ if (typeof module !== 'undefined' && module.exports) {
         plotlyTemplate,
         themeLayout,
         activeRepos,
+        repositoryLabels,
         renderSummary,
         renderBarChart,
         renderIssuesBarChart,

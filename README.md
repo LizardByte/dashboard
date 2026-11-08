@@ -25,6 +25,8 @@ The collector discovers public repositories from the shared
 registry. Add organizations there; dashboard has no separate organization list.
 Charts, PR links, and PR metrics use each repository's current `owner/name`, and the
 dashboard can show all organizations together or filter to one organization.
+Chart labels show the repository name, adding the owner on a second line for duplicate names;
+hover details include the full repository identity.
 Archived repositories remain in the raw inventory but are excluded from active metrics.
 
 The published `github/repos.json` remains the raw repository catalog. Each record adds

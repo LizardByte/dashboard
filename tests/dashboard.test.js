@@ -151,6 +151,78 @@ describe('dashboard.js', () => {
         expect(globalThis.Plotly.newPlot).toHaveBeenCalledTimes(1);
     });
 
+    test('repository labels omit unique owners and disambiguate duplicate names on a separate line', () => {
+        const labels = mod.repositoryLabels([
+            'LizardByte-infrastructure/upptime', 'First/demo', 'Second/demo', 'First/demo', 'legacy',
+        ]);
+        expect([...labels.values()]).toEqual(['upptime', 'demo<br>First', 'demo<br>Second', 'legacy']);
+        expect(mod.repositoryLabels(['First/demo']).get('First/demo')).toBe('demo');
+    });
+
+    test('category charts use readable ticks while keeping full identities and values for hover', () => {
+        const repos = ['First/demo', 'Second/demo', 'LizardByte-infrastructure/upptime'].map((name, index) => ({
+            name, value: index + 1, issues: index + 1, coverage: 90 + index,
+        }));
+        mod.renderBarChart('chart-stars', repos);
+        mod.renderIssuesBarChart(repos);
+        mod.renderPRsBarChart(repos, repos.map(repo => ({ repo: repo.name, draft: false })));
+        mod.renderCoverageChart(repos);
+        for (const id of ['chart-stars', 'chart-issues', 'chart-prs', 'chart-coverage']) {
+            const [, traces, layout] = globalThis.Plotly.newPlot.mock.calls.find(([chart]) => chart === id);
+            const ticks = new Map(layout.xaxis.tickvals.map((name, index) => [name, layout.xaxis.ticktext[index]]));
+            expect(ticks.get('LizardByte-infrastructure/upptime')).toBe('upptime');
+            expect(ticks.get('First/demo')).toBe('demo<br>First');
+            expect(ticks.get('Second/demo')).toBe('demo<br>Second');
+            expect(layout.xaxis.automargin).toBe(true);
+            expect(traces[0].x).toContain('First/demo');
+            expect(traces[0].x).toContain('Second/demo');
+            if (id === 'chart-coverage') {
+                expect(traces[0].text).toContain('First/demo: 90.0%');
+            } else {
+                expect(traces[0].customdata).toEqual(traces[0].x);
+                expect(traces[0].hovertemplate).toContain('%{customdata}');
+            }
+        }
+    });
+
+    test('history legends use short names without merging same-name series or hiding hover owners', () => {
+        const names = ['First/demo', 'Second/demo', 'LizardByte-infrastructure/upptime'];
+        const points = names.map((repo, index) => ({
+            repo, date: '2026-11-07', week: '2026-11-07', stars: index + 1, coverage: 90 + index,
+            open: index + 1, total: index + 1,
+        }));
+        mod.renderStarHistory(points);
+        mod.renderCoverageHistory(points);
+        mod.renderCodeScanningHistory(points);
+        mod.renderCommitActivityChart(points, names.map(name => ({ name })));
+        for (const id of ['chart-star-history', 'chart-coverage-history', 'chart-code-scanning-history',
+            'chart-commit-activity-repos']) {
+            const [, traces] = globalThis.Plotly.newPlot.mock.calls.find(([chart]) => chart === id);
+            expect(traces).toHaveLength(3);
+            expect(traces.find(trace => trace.meta === 'First/demo').name).toBe('demo<br>First');
+            expect(traces.find(trace => trace.meta === 'Second/demo').name).toBe('demo<br>Second');
+            expect(traces.find(trace => trace.meta === 'LizardByte-infrastructure/upptime').name).toBe('upptime');
+            expect(traces.every(trace => trace.hovertemplate.includes('%{meta}'))).toBe(true);
+        }
+    });
+
+    test('treemap labels are short while hover data and node identities retain the owners', () => {
+        const repos = ['First/demo', 'Second/demo', 'LizardByte-infrastructure/upptime'].map(name => ({
+            name, languages: { Python: 10, JavaScript: 5 }, has_readthedocs: true, license: 'MIT',
+        }));
+        mod.renderLicenseChart(repos);
+        mod.renderDocsChart(repos);
+        mod.renderLanguageCharts(repos);
+        for (const [, [trace]] of globalThis.Plotly.newPlot.mock.calls) {
+            expect(trace.labels[trace.customdata.indexOf('LizardByte-infrastructure/upptime')]).toBe('upptime');
+            expect(trace.labels[trace.customdata.indexOf('First/demo')]).toBe('demo<br>First');
+            expect(trace.labels[trace.customdata.indexOf('Second/demo')]).toBe('demo<br>Second');
+            expect(trace.ids.some(id => id.includes('First/demo'))).toBe(true);
+            expect(trace.ids.some(id => id.includes('Second/demo'))).toBe(true);
+            expect(trace.hovertemplate).toContain('%{customdata}');
+        }
+    });
+
     test('renderIssuesBarChart splits bot and other issues', () => {
         const el = document.getElementById('chart-issues');
         el.remove();
@@ -479,7 +551,8 @@ describe('dashboard.js', () => {
         for (const id of ['chart-star-history', 'chart-coverage-history', 'chart-code-scanning-history',
             'chart-commit-activity-repos']) {
             const [, traces] = globalThis.Plotly.newPlot.mock.calls.find(([chart]) => chart === id);
-            expect(traces.map(trace => trace.name)).toEqual(['First/demo']);
+            expect(traces.map(trace => trace.name)).toEqual(['demo']);
+            expect(traces.map(trace => trace.meta)).toEqual(['First/demo']);
         }
         expect(document.getElementById('collection-status').hidden).toBe(true);
         select.value = 'Empty';
