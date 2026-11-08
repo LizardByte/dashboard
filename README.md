@@ -18,6 +18,46 @@
 
 A dashboard for viewing LizardByte repository data inside a Jekyll static site.
 
+## Organizations and repository identity
+
+The collector discovers public repositories from the shared
+[organizations.json](https://github.com/LizardByte/.github/blob/master/organizations.json)
+registry. Add organizations there; dashboard has no separate organization list.
+Charts, PR links, and PR metrics use each repository's current `owner/name`, and the
+dashboard can show all organizations together or filter to one organization.
+Chart labels show the repository name, adding the owner on a second line for duplicate names;
+hover details include the full repository identity.
+Archived repositories remain in the raw inventory but are excluded from active metrics.
+
+The published `github/repos.json` remains the raw repository catalog. Each record adds
+`dashboard_key`, `dashboard_aliases`, and `dashboard_paths` for its banner, small banner,
+and coverage badge. Consumers should use the supplied paths rather than constructing
+them from the repository's current name or owner.
+
+`github/catalog.json` is generated state, keyed by GitHub's persistent repository ID.
+On the first run, it restores existing storage keys from the published `github/repos.json`.
+Those keys stay unchanged across transfers and renames, so existing badge/banner URLs,
+star and coverage history, commit activity, and PR caches continue to work. New repositories
+use `owner/name` storage keys, keeping repositories with the same name in different orgs separate.
+PR metrics pages also retain their original report routes. Coverage points from destination
+Codecov projects are merged into the existing series by timestamp.
+
+The Update workflow restores `github`, `codecov`, `readthedocs`, `shields`, and `azure` data
+from `gh-pages` before collecting. Keep the published identity catalog and these caches when
+moving or restoring a deployment; deleting them discards the mapping to existing public URLs
+and history. Other services and Azure collection settings are independent of the org registry.
+
+GitHub and Codecov collections run separately for each organization. If an organization cannot
+be refreshed, its available cache remains published and the dashboard shows a collection notice.
+Repositories without Codecov uploads are skipped until Codecov reports them active; an organization
+with no coverage uploads is not treated as a collection failure.
+Registry outages use the last successful organization list; a first run without a valid registry fails.
+`metadata.json` reports registry freshness and per-organization collection status.
+The existing `GITHUB_TOKEN` and `CODECOV_TOKEN` collector credentials need access to the desired
+organizations; the workflow supplies these from `GH_BOT_TOKEN` (or `GITHUB_TOKEN`) and
+`CODECOV_API_TOKEN`, respectively. Read the Docs projects are matched by full GitHub identity,
+including saved pre-transfer URLs.
+
 ## Azure code signing metrics
 
 The optional Azure Code Signing section displays Artifact Signing (formerly Trusted Signing)

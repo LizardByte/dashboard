@@ -49,6 +49,61 @@ function activeRepos(repos) {
     return repos.filter(r => !r.archived && !(r.topics || []).includes('package-manager'));
 }
 
+// Keep owner/name as the chart identity and shorten only the visible labels.
+function repositoryLabels(names) {
+    const unique = [...new Set(names)];
+    const counts = new Map();
+    unique.forEach(name => {
+        const short = name.split('/').at(-1).toLowerCase();
+        counts.set(short, (counts.get(short) || 0) + 1);
+    });
+    return new Map(unique.map(name => {
+        const short = name.split('/').at(-1);
+        const label = counts.get(short.toLowerCase()) > 1 && name.includes('/')
+            ? `${short}<br>${name.split('/')[0]}` : short;
+        return [name, label];
+    }));
+}
+
+function repositoryAxis(names) {
+    const labels = repositoryLabels(names);
+    return {
+        tickmode: 'array', tickvals: [...labels.keys()], ticktext: [...labels.values()],
+        tickangle: -45, automargin: true,
+    };
+}
+
+function configureOrganizations(repos, render) {
+    const select = document.getElementById('organization-filter');
+    if (!select) return;
+    select.replaceChildren(new Option('All organizations', ''));
+    const owners = [...new Set(repos.map(repo => repo.owner).filter(Boolean))]
+        .sort((left, right) => left.localeCompare(right));
+    owners.forEach(owner => select.add(new Option(owner, owner)));
+    select.onchange = render;
+}
+
+function renderCollectionStatus(metadata) {
+    const status = document.getElementById('collection-status');
+    if (!status) return;
+    const stale = (metadata.organization_status || [])
+        .filter(org => org.status !== 'ok' || org.codecov_status === 'stale')
+        .map(org => org.name);
+    const messages = [];
+    if (metadata.registry_fresh === false) messages.push('The organization list could not be refreshed.');
+    if (stale.length) messages.push(`Some data could not be refreshed for ${stale.join(', ')}.`);
+    status.hidden = messages.length === 0;
+    status.textContent = messages.length ? `${messages.join(' ')} Showing available cached data.` : '';
+}
+
+function clearRepositoryCharts() {
+    document.querySelectorAll('[id^="chart-"]').forEach(element => {
+        if (element.id === 'chart-azure-signing') return;
+        Plotly.purge(element);
+        element.replaceChildren();
+    });
+}
+
 // Summary
 function renderSummary(active, prs, metadata) {
     const el = document.getElementById('summary-stats');
@@ -80,12 +135,14 @@ function renderBarChart(divId, entries) {
         x: sorted.map(d => d.name),
         y: sorted.map(d => Math.log1p(d.value)),
         text: sorted.map(d => String(d.value)),
+        customdata: sorted.map(d => d.name),
+        hovertemplate: '%{customdata}<br>%{text}<extra></extra>',
         type: 'bar',
         textposition: 'inside',
         marker: { color: '#28a9e6' },
     }], themeLayout({
         yaxis: { showticklabels: false },
-        xaxis: { tickangle: -45 },
+        xaxis: repositoryAxis(sorted.map(d => d.name)),
     }), CONFIG);
 }
 
@@ -127,6 +184,8 @@ function renderIssuesBarChart(active) {
             x: scaled.map(r => r.name),
             y: scaled.map(r => r.otherScaled),
             text: scaled.map(r => (r.other ? String(r.other) : '')),
+            customdata: scaled.map(r => r.name),
+            hovertemplate: '%{customdata}<br>Other: %{text}<extra></extra>',
             type: 'bar',
             textposition: 'inside',
             marker: { color: '#28a9e6' },
@@ -136,6 +195,8 @@ function renderIssuesBarChart(active) {
             x: scaled.map(r => r.name),
             y: scaled.map(r => r.botScaled),
             text: scaled.map(r => (r.bot ? String(r.bot) : '')),
+            customdata: scaled.map(r => r.name),
+            hovertemplate: '%{customdata}<br>Bot: %{text}<extra></extra>',
             type: 'bar',
             textposition: 'inside',
             marker: { color: '#f59f00' },
@@ -143,7 +204,7 @@ function renderIssuesBarChart(active) {
     ], themeLayout({
         barmode: 'stack',
         yaxis: { showticklabels: false },
-        xaxis: { tickangle: -45 },
+        xaxis: repositoryAxis(scaled.map(r => r.name)),
     }), CONFIG);
 }
 
@@ -161,6 +222,7 @@ function renderStarHistory(history) {
         byRepo[repo].x.push(date);
         byRepo[repo].y.push(stars);
     });
+    const labels = repositoryLabels(Object.keys(byRepo));
     const traces = Object.entries(byRepo)
         .sort((a, b) => {
             /* istanbul ignore next */
@@ -168,7 +230,10 @@ function renderStarHistory(history) {
             const lastB = b[1].y.at(-1) ?? 0;
             return lastB - lastA;
         })
-        .map(([repo, d]) => ({ name: repo, x: d.x, y: d.y, mode: 'lines+markers', type: 'scatter' }));
+        .map(([repo, d]) => ({
+            name: labels.get(repo), meta: repo, x: d.x, y: d.y, mode: 'lines+markers', type: 'scatter',
+            hovertemplate: '%{meta}<br>%{x}<br>Stars: %{y}<extra></extra>',
+        }));
     Plotly.newPlot('chart-star-history', traces, themeLayout({
         yaxis: { title: 'Stars' },
         margin: { t: 30, r: 20, b: 60, l: 60 },
@@ -197,11 +262,13 @@ function renderPRsBarChart(active, prs) {
         x: sorted.map(r => r.name),
         y: sorted.map(r => r[status]),
         text: sorted.map(r => String(r[status])),
+        customdata: sorted.map(r => r.name),
+        hovertemplate: `%{customdata}<br>${status}: %{text}<extra></extra>`,
         type: 'bar',
         textposition: 'inside',
     })), themeLayout({
         barmode: 'stack',
-        xaxis: { tickangle: -45 },
+        xaxis: repositoryAxis(sorted.map(r => r.name)),
     }), CONFIG);
 }
 
@@ -219,10 +286,12 @@ function stripTags(html) {
 function renderPRTable(prs) {
     const container = document.getElementById('table-prs');
     if (!container) return;
+    if (container.cleanupDataTable) container.cleanupDataTable();
     const cols = ['Repo', '#', 'Title', 'Author', 'Labels', 'Assignees', 'Status', 'Created', 'Last Activity', 'Milestone'];
     let rows = '';
     prs.forEach(pr => {
-        const link = `<a href="https://github.com/LizardByte/${pr.repo}/pull/${pr.number}" target="_blank" rel="noopener">#${pr.number}</a>`;
+        const repository = pr.repo.includes('/') ? pr.repo : `LizardByte/${pr.repo}`;
+        const link = `<a href="https://github.com/${repository}/pull/${pr.number}" target="_blank" rel="noopener">#${pr.number}</a>`;
         rows += `<tr>
             <td>${pr.repo}</td>
             <td>${link}</td>
@@ -252,14 +321,16 @@ function renderPRTable(prs) {
 
     if (typeof DataTable !== 'undefined') {
         const filterValues = new Array(cols.length).fill('');
-        DataTable.ext.search.push((settings, rowData) => {
+        const filters = DataTable.ext.search;
+        const columnFilter = (settings, rowData) => {
             if (settings.nTable.id !== 'pr-datatable') return true;
             return filterValues.every((val, i) => {
                 if (!val) return true;
                 /* istanbul ignore next */
                 return stripTags(String(rowData[i] || '')).toLowerCase().includes(val.toLowerCase());
             });
-        });
+        };
+        filters.push(columnFilter);
         const dt = new DataTable('#pr-datatable', {
             pageLength: 10,
             lengthMenu: [10, 25, 50, 100],
@@ -282,6 +353,11 @@ function renderPRTable(prs) {
                 bottomEnd: 'paging',
             },
         });
+        container.cleanupDataTable = () => {
+            dt.destroy();
+            filters.splice(filters.indexOf(columnFilter), 1);
+            container.cleanupDataTable = null;
+        };
         filterInputs.forEach((input, i) => {
             input.addEventListener('input', () => {
                 filterValues[i] = input.value;
@@ -389,27 +465,31 @@ function renderPRTable(prs) {
 
 // License treemap
 function renderLicenseChart(repos) {
+    const repoLabels = repositoryLabels(repos.map(repo => repo.name));
     const licRepos = {};
     repos.forEach(r => {
         const lic = r.license || 'No License';
         if (!licRepos[lic]) licRepos[lic] = [];
         licRepos[lic].push(r.name);
     });
-    const ids = [], labels = [], parents = [], values = [];
+    const ids = [], labels = [], parents = [], values = [], customdata = [];
     Object.entries(licRepos).forEach(([lic, rlist]) => {
         ids.push(`lic::${lic}`);
         labels.push(lic);
+        customdata.push(lic);
         parents.push('');
         values.push(rlist.length);
         rlist.forEach(name => {
             ids.push(`repo::${lic}::${name}`);
-            labels.push(name);
+            labels.push(repoLabels.get(name));
+            customdata.push(name);
             parents.push(`lic::${lic}`);
             values.push(1);
         });
     });
     Plotly.newPlot('chart-license', [{
-        type: 'treemap', ids, labels, parents, values,
+        type: 'treemap', ids, labels, parents, values, customdata,
+        hovertemplate: '%{customdata}<br>%{value}<extra></extra>',
         branchvalues: 'total',
         tiling: { squarifyratio: 1.618, pad: 2 },
         pathbar: { visible: false },
@@ -435,9 +515,10 @@ function renderCoverageChart(repos) {
             showscale: true,
         },
         text: sorted.map(r => `${r.name}: ${r.coverage.toFixed(1)}%`),
+        hovertemplate: '%{text}<extra></extra>',
     }], themeLayout({
         yaxis: { title: 'Coverage %', range: [0, 105] },
-        xaxis: { tickangle: -45 },
+        xaxis: repositoryAxis(sorted.map(r => r.name)),
     }), CONFIG);
 }
 
@@ -455,8 +536,10 @@ function renderCoverageHistory(history) {
         byRepo[repo].x.push(date);
         byRepo[repo].y.push(coverage);
     });
+    const labels = repositoryLabels(Object.keys(byRepo));
     const traces = Object.entries(byRepo).map(([repo, d]) => ({
-        name: repo, x: d.x, y: d.y, mode: 'lines', type: 'scatter',
+        name: labels.get(repo), meta: repo, x: d.x, y: d.y, mode: 'lines', type: 'scatter',
+        hovertemplate: '%{meta}<br>%{x}<br>Coverage: %{y}%<extra></extra>',
     }));
     Plotly.newPlot('chart-coverage-history', traces, themeLayout({
         yaxis: { title: 'Coverage %', range: [0, 100] },
@@ -477,6 +560,7 @@ function renderCodeScanningHistory(history) {
         byRepo[repo].x.push(date);
         byRepo[repo].y.push(open);
     });
+    const labels = repositoryLabels(Object.keys(byRepo));
     const traces = Object.entries(byRepo)
         .sort((a, b) => {
             const lastA = a[1].y.at(-1) ?? 0;
@@ -484,7 +568,9 @@ function renderCodeScanningHistory(history) {
             return lastB - lastA;
         })
         .map(([repo, d]) => ({
-            name: repo,
+            name: labels.get(repo),
+            meta: repo,
+            hovertemplate: '%{meta}<br>%{x}<br>Open alerts: %{y}<extra></extra>',
             x: d.x,
             y: d.y,
             mode: 'lines+markers',
@@ -498,23 +584,27 @@ function renderCodeScanningHistory(history) {
 
 // Language treemaps
 function treemap(data, valueFor) {
-    const ids = [], labels = [], parents = [], values = [];
+    const names = Object.values(data).flatMap(info => Array.isArray(info) ? info : Object.keys(info.repos));
+    const repoLabels = repositoryLabels(names);
+    const ids = [], labels = [], parents = [], values = [], customdata = [];
     const sorted = Object.entries(data).sort((a, b) => valueFor(b) - valueFor(a));
     /* istanbul ignore next */
     sorted.forEach(([lang, info]) => {
         ids.push(`L::${lang}`);
         labels.push(lang);
+        customdata.push(lang);
         parents.push('');
         values.push(valueFor([lang, info]));
         const rlist = Array.isArray(info) ? info : Object.keys(info.repos);
         rlist.forEach(name => {
             ids.push(`R::${lang}::${name}`);
-            labels.push(name);
+            labels.push(repoLabels.get(name));
+            customdata.push(name);
             parents.push(`L::${lang}`);
             values.push(Array.isArray(info) ? 1 : info.repos[name]);
         });
     });
-    return { ids, labels, parents, values };
+    return { ids, labels, parents, values, customdata };
 }
 
 function renderLanguageCharts(repos) {
@@ -531,6 +621,7 @@ function renderLanguageCharts(repos) {
 
     const treemapTrace = (data) => ({
         type: 'treemap', ...data,
+        hovertemplate: '%{customdata}<br>%{value}<extra></extra>',
         branchvalues: 'total',
         tiling: { squarifyratio: 1.618, pad: 2 },
         pathbar: { visible: false },
@@ -574,12 +665,15 @@ function renderCommitActivityChart(commitActivity, active) {
         byRepo[repo].x.push(week);
         byRepo[repo].y.push(total);
     });
+    const labels = repositoryLabels(Object.keys(byRepo));
     const repoTraces = Object.entries(byRepo)
         .filter(([, d]) => d.x.length > 0)
         .map(([repo, d]) => {
             const pairs = d.x.map((w, i) => [w, d.y[i]]).sort((a, b) => a[0].localeCompare(b[0]));
             return {
-                name: repo,
+                name: labels.get(repo),
+                meta: repo,
+                hovertemplate: '%{meta}<br>%{x}<br>Commits: %{y}<extra></extra>',
                 x: pairs.map(([w]) => w),
                 y: pairs.map(([, v]) => v),
                 mode: 'lines',
@@ -596,14 +690,17 @@ function renderCommitActivityChart(commitActivity, active) {
 
 // Docs treemap
 function renderDocsChart(repos) {
+    const repoLabels = repositoryLabels(repos.map(repo => repo.name));
     const hasRTD = repos.filter(r => r.has_readthedocs);
     const noRTD = repos.filter(r => !r.has_readthedocs);
     const ids = ['true', 'false',
         ...hasRTD.map(r => `y::${r.name}`),
         ...noRTD.map(r => `n::${r.name}`)];
     const labels = ['Has ReadTheDocs', 'No ReadTheDocs',
-        ...hasRTD.map(r => r.name),
-        ...noRTD.map(r => r.name)];
+        ...hasRTD.map(r => repoLabels.get(r.name)),
+        ...noRTD.map(r => repoLabels.get(r.name))];
+    const customdata = ['Has ReadTheDocs', 'No ReadTheDocs',
+        ...hasRTD.map(r => r.name), ...noRTD.map(r => r.name)];
     const parents = ['', '',
         ...hasRTD.map(() => 'true'),
         ...noRTD.map(() => 'false')];
@@ -611,7 +708,8 @@ function renderDocsChart(repos) {
         ...hasRTD.map(() => 1),
         ...noRTD.map(() => 1)];
     Plotly.newPlot('chart-docs', [{
-        type: 'treemap', ids, labels, parents, values,
+        type: 'treemap', ids, labels, parents, values, customdata,
+        hovertemplate: '%{customdata}<br>%{value}<extra></extra>',
         branchvalues: 'total',
         tiling: { squarifyratio: 1.618, pad: 2 },
         pathbar: { visible: false },
@@ -690,43 +788,52 @@ async function loadDashboard() {
             fetchJSON('azure_signing.json').catch(() => null),
         ]);
 
-        const active = activeRepos(repos);
-        const activePRs = prs.filter(pr => active.some(r => r.name === pr.repo));
+        const render = () => {
+            clearRepositoryCharts();
+            const organization = document.getElementById('organization-filter')?.value || '';
+            const active = activeRepos(repos).filter(repo => !organization || repo.owner === organization);
+            const scopedHistory = points => organization
+                ? points.filter(point => active.some(repo => repo.name === point.repo)) : points;
+            const activePRs = prs.filter(pr => active.some(r => r.name === pr.repo));
 
-        // Patch repos whose current coverage is 0 using their latest history value
-        if (coverageHistory.length) {
-            const latestByRepo = {};
-            coverageHistory.forEach(({ repo, date, coverage }) => {
-                if (!latestByRepo[repo] || date > latestByRepo[repo].date) {
-                    latestByRepo[repo] = { date, coverage };
-                }
-            });
-            active.forEach(r => {
-                if (!r.coverage && latestByRepo[r.name]) {
-                    r.coverage = latestByRepo[r.name].coverage;
-                }
-            });
-        }
+            // Patch repos whose current coverage is 0 using their latest history value
+            if (coverageHistory.length) {
+                const latestByRepo = {};
+                coverageHistory.forEach(({ repo, date, coverage }) => {
+                    if (!latestByRepo[repo] || date > latestByRepo[repo].date) {
+                        latestByRepo[repo] = { date, coverage };
+                    }
+                });
+                active.forEach(r => {
+                    if (!r.coverage && latestByRepo[r.name]) {
+                        r.coverage = latestByRepo[r.name].coverage;
+                    }
+                });
+            }
 
-        if (loadingEl) loadingEl.style.display = 'none';
-        if (contentEl) contentEl.style.display = '';
+            if (loadingEl) loadingEl.style.display = 'none';
+            if (contentEl) contentEl.style.display = '';
 
-        renderSummary(active, activePRs, metadata);
-        renderBarChart('chart-stars', active.map(r => ({ name: r.name, value: r.stars })));
-        renderStarHistory(starHistory);
-        renderBarChart('chart-forks', active.map(r => ({ name: r.name, value: r.forks })));
-        renderIssuesBarChart(active);
-        renderBarChart('chart-code-scanning', active.map(r => ({ name: r.name, value: r.code_scanning_open || 0 })));
-        renderCodeScanningHistory(codeScanningHistory);
-        renderPRsBarChart(active, activePRs);
-        renderPRTable(activePRs);
-        renderLicenseChart(active);
-        renderCoverageChart(active);
-        renderCoverageHistory(coverageHistory);
-        renderLanguageCharts(active);
-        renderCommitActivityChart(commitActivity, active);
-        renderDocsChart(active);
-        renderAzureSigning(azureSigning);
+            renderSummary(active, activePRs, metadata);
+            renderBarChart('chart-stars', active.map(r => ({ name: r.name, value: r.stars })));
+            renderStarHistory(scopedHistory(starHistory));
+            renderBarChart('chart-forks', active.map(r => ({ name: r.name, value: r.forks })));
+            renderIssuesBarChart(active);
+            renderBarChart('chart-code-scanning', active.map(r => ({ name: r.name, value: r.code_scanning_open || 0 })));
+            renderCodeScanningHistory(scopedHistory(codeScanningHistory));
+            renderPRsBarChart(active, activePRs);
+            renderPRTable(activePRs);
+            renderLicenseChart(active);
+            renderCoverageChart(active);
+            renderCoverageHistory(scopedHistory(coverageHistory));
+            renderLanguageCharts(active);
+            renderCommitActivityChart(commitActivity, active);
+            renderDocsChart(active);
+            renderAzureSigning(azureSigning);
+        };
+        configureOrganizations(repos, render);
+        renderCollectionStatus(metadata);
+        render();
 
     } catch (err) {
         if (loadingEl) loadingEl.innerHTML =
@@ -746,6 +853,7 @@ if (typeof module !== 'undefined' && module.exports) {
         plotlyTemplate,
         themeLayout,
         activeRepos,
+        repositoryLabels,
         renderSummary,
         renderBarChart,
         renderIssuesBarChart,
@@ -763,5 +871,7 @@ if (typeof module !== 'undefined' && module.exports) {
         renderDocsChart,
         renderAzureSigning,
         loadDashboard,
+        configureOrganizations,
+        renderCollectionStatus,
     };
 }

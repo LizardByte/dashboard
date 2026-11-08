@@ -14,8 +14,10 @@ def _write_json(path, payload):
     path.write_text(json.dumps(payload), encoding='utf-8')
 
 
-def test_safe_name_uses_basename():
-    assert builder._safe_name('x/y/z/repo') == 'repo'
+def test_safe_name_preserves_owner_and_rejects_arbitrary_paths():
+    assert builder._safe_name('owner/repo').replace('\\', '/') == 'owner/repo'
+    with pytest.raises(ValueError):
+        builder._safe_name('x/y/z/repo')
 
 
 def test_load_rtd_repos_handles_missing_and_errors(tmp_path):
@@ -33,7 +35,7 @@ def test_load_rtd_repos_parses_repo_names(tmp_path):
         {'repository': {'url': 'https://github.com/LizardByte/demo.git'}},
         {'repository': {'url': 'https://github.com/LizardByte/demo2'}},
     ])
-    assert builder._load_rtd_repos(str(tmp_path)) == {'demo', 'demo2'}
+    assert builder._load_rtd_repos(str(tmp_path)) == {'lizardbyte/demo', 'lizardbyte/demo2'}
 
 
 def test_get_coverage_and_history(tmp_path):

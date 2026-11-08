@@ -241,7 +241,7 @@ def test_update_codecov_error_paths(monkeypatch, tmp_path):
         'get',
         lambda url, headers: FakeResponse({'next': 'more', 'results': []}, 200)
     )
-    with pytest.raises(AssertionError):
+    with pytest.raises(ValueError, match='Invalid Codecov pagination URL'):
         updater.update_codecov()
 
     assert warnings
@@ -619,21 +619,24 @@ def test_process_github_repo_error_and_avatar_skip(monkeypatch, tmp_path):
     assert any('OpenGraph image URL' in warning for warning in warnings)
 
 
-def test_update_github(monkeypatch):
+def test_update_github(monkeypatch, tmp_path):
     monkeypatch.setenv('GITHUB_TOKEN', 'tok')
     monkeypatch.setenv('GITHUB_REPOSITORY_OWNER', 'owner')
 
     repo_active = FakeRepo('active', archived=False)
     repo_pending = FakeRepo('pending', archived=False)
     repo_archived = FakeRepo('archived', archived=True)
+    for identity, repo in enumerate([repo_active, repo_pending, repo_archived], 1):
+        repo.raw_data.update({'id': identity, 'full_name': f'owner/{repo.name}'})
+    monkeypatch.setattr(updater.helpers.s, 'get', lambda **kwargs: FakeResponse(['owner']))
 
-    owner = SimpleNamespace(get_repos=lambda: [repo_active, repo_pending, repo_archived])
+    owner = SimpleNamespace(get_repos=lambda **kwargs: [repo_active, repo_pending, repo_archived])
 
     class FakeGithub:
         def __init__(self, auth, timeout):
             self.per_page = None
 
-        def get_user(self, name):
+        def get_organization(self, name):
             return owner
 
     monkeypatch.setattr(updater, 'Github', FakeGithub)
@@ -655,7 +658,7 @@ def test_update_github(monkeypatch):
     )
     processed = []
     monkeypatch.setattr(updater, '_process_github_repo', lambda repo, headers, graphql_url: processed.append(repo.name))
-    monkeypatch.setattr(updater, 'BASE_DIR', 'base')
+    monkeypatch.setattr(updater, 'BASE_DIR', str(tmp_path))
 
     updater.update_github()
 
@@ -788,6 +791,27 @@ def test_fetch_code_scanning_alerts(monkeypatch):
     assert result == alerts
 
 
+@pytest.mark.parametrize('status', [403, 404])
+def test_process_github_repo_preserves_code_scanning_history_when_unavailable(monkeypatch, tmp_path, status):
+    monkeypatch.setattr(updater, 'BASE_DIR', str(tmp_path))
+    repo = FakeRepo(name='demo')
+    repo.dashboard_key = 'old-name'
+    paths = [tmp_path / 'github/codeScanning/old-name.json', tmp_path / 'github/codeScanningHistory/old-name.json']
+    for path, data in zip(paths, [{'open': 3}, [{'date': '2025-01-01', 'open': 3}]]):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(data), encoding='utf-8')
+    previous = [path.read_bytes() for path in paths]
+
+    def unavailable():
+        raise GithubException(status=status, data={'message': 'unavailable'})
+
+    monkeypatch.setattr(repo, 'get_codescan_alerts', unavailable)
+    monkeypatch.setattr(updater, '_collect_star_history', lambda repo: [])
+    monkeypatch.setattr(updater, '_fetch_open_graph_image_url', lambda *args: None)
+    updater._process_github_repo(repo, {}, 'unused')
+    assert [path.read_bytes() for path in paths] == previous
+
+
 def test_fetch_code_scanning_alerts_404_skip(monkeypatch):
     repo = FakeRepo(name='demo')
 
@@ -799,7 +823,7 @@ def test_fetch_code_scanning_alerts_404_skip(monkeypatch):
 
     monkeypatch.setattr(repo, 'get_codescan_alerts', lambda **kwargs: raise_404())
 
-    assert updater._fetch_code_scanning_alerts(repo) == []
+    assert updater._fetch_code_scanning_alerts(repo) is None
     assert warnings
 
 

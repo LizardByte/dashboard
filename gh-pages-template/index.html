@@ -47,6 +47,14 @@ globalThis.DASHBOARD_CONFIG = {
 
 <div id="dashboard-content" style="display:none">
 
+  <p id="collection-status" class="alert alert-warning" role="status" hidden></p>
+  <div class="mb-4">
+    <label for="organization-filter" class="form-label">Organization</label>
+    <select id="organization-filter" class="form-select">
+      <option value="">All organizations</option>
+    </select>
+  </div>
+
   <!-- Summary stats -->
   <div class="row mb-4" id="summary-stats"></div>
 
