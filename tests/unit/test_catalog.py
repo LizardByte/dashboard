@@ -233,3 +233,35 @@ def test_codecov_repository_pagination_stays_inside_the_source_org(monkeypatch):
     monkeypatch.setattr(updater.helpers.s, 'get',
                         lambda **kwargs: SimpleNamespace(status_code=200, json=lambda: next(responses)))
     assert list(updater._codecov_repositories(base, {})) == [{'name': 'one'}, {'name': 'two'}]
+
+
+def test_codecov_inactive_project_is_not_an_outage_and_collects_after_its_first_upload(monkeypatch, tmp_path):
+    write(tmp_path / 'github/repos.json', [dict(repository(1, 'New/demo').raw_data, dashboard_key='old-name')])
+    write(tmp_path / 'github/catalog.json', {'organizations': [{'name': 'New', 'status': 'ok'}]})
+    cache = tmp_path / 'codecov/old-name.json'
+    write(cache, {'totals': {'coverage': 71}})
+    previous = cache.read_bytes()
+    calls, active = [], False
+
+    def get(url, headers):
+        calls.append(url)
+        if url.endswith('/repos?page_size=500'):
+            data, status = {'next': None, 'results': [{'name': 'demo', 'active': active}]}, 200
+        else:
+            data, status = ({'totals': {'coverage': 92}}, 200) if active else ({}, 404)
+        return SimpleNamespace(status_code=status, json=lambda: data)
+
+    monkeypatch.setattr(updater, 'BASE_DIR', str(tmp_path))
+    monkeypatch.setenv('CODECOV_TOKEN', 'test-only')
+    monkeypatch.setattr(updater.helpers.s, 'get', get)
+    monkeypatch.setattr(updater, 'fetch_coverage_trend_for_repo', lambda *args: [])
+    updater.update_codecov()
+    state = json.loads((tmp_path / 'github/catalog.json').read_text())
+    assert state['organizations'][0]['codecov_status'] == 'ok'
+    assert calls == ['https://codecov.io/api/v2/github/New/repos?page_size=500']
+    assert cache.read_bytes() == previous
+
+    active = True
+    updater.update_codecov()
+    assert json.loads(cache.read_text())['totals']['coverage'] == 92
+    assert calls[-1] == 'https://codecov.io/api/v2/github/New/repos/demo'

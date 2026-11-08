@@ -49,6 +49,8 @@ and history. Other services and Azure collection settings are independent of the
 
 GitHub and Codecov collections run separately for each organization. If an organization cannot
 be refreshed, its available cache remains published and the dashboard shows a collection notice.
+Repositories without Codecov uploads are skipped until Codecov reports them active; an organization
+with no coverage uploads is not treated as a collection failure.
 Registry outages use the last successful organization list; a first run without a valid registry fails.
 `metadata.json` reports registry freshness and per-organization collection status.
 The existing `GITHUB_TOKEN` and `CODECOV_TOKEN` collector credentials need access to the desired

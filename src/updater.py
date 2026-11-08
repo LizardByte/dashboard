@@ -175,9 +175,10 @@ def _update_codecov_org(owner: str, keys: dict | None = None):
 
     for repo in tqdm(
             iterable=_codecov_repositories(base_url, headers),
-            desc='Updating Codecov data',
+            desc=f'Updating Codecov data ({owner})',
     ):
-        if repo['name'] in archived_repos or (keys is not None and repo['name'] not in keys):
+        if (repo.get('active') is False or repo['name'] in archived_repos
+                or (keys is not None and repo['name'] not in keys)):
             continue
         key = catalog.cache_key(keys[repo['name']]) if keys is not None else repo['name']
 
