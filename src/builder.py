@@ -250,6 +250,21 @@ def _build_repo_entry(
     }
 
 
+def _build_stars_shields_badge(repositories: list, collection: dict) -> dict:
+    """Count each public repository once, including archived repos, across the shared org registry."""
+    badge = {'schemaVersion': 1, 'label': 'stars'}
+    if any(org.get('status') == 'unavailable' for org in collection.get('organizations', [])):
+        return {**badge, 'message': 'unavailable', 'color': 'lightgrey', 'isError': True}
+
+    public_repositories = {}
+    for repo in repositories:
+        if not repo.get('private'):
+            identity = repo.get('id') or catalog.full_name(repo).casefold()
+            public_repositories[identity] = repo
+    total = sum(repo.get('stargazers_count', 0) for repo in public_repositories.values())
+    return {**badge, 'message': f'{total:,}', 'color': 'blue'}
+
+
 def build():
     """
     Read raw data collected by updater.py and write dashboard-ready JSON files
@@ -323,6 +338,10 @@ def build():
         'organization_status': collection.get('organizations', []),
         'registry_fresh': collection.get('registry_fresh', True),
     })
+    helpers.write_json_files(
+        os.path.join(BASE_DIR, 'shields', 'github', 'stars'),
+        _build_stars_shields_badge(raw_repos, collection),
+    )
     aliases = {catalog.cache_key(repo): catalog.full_name(repo) for repo in raw_repos
                if pr_metrics.is_active_repo(repo) and catalog.cache_key(repo) != catalog.full_name(repo)}
     pr_metrics.write_report_pages(TEMPLATE_DIR, pr_metric_caches, now, aliases)
