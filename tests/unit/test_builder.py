@@ -168,6 +168,42 @@ def test_build_repo_entry_computes_counts_and_license():
     assert counted['issues_other'] == 1
 
 
+def test_build_stars_badge_counts_public_repositories_once_across_organizations():
+    repositories = [
+        {'id': 1, 'full_name': 'LizardByte/Sunshine', 'stargazers_count': 1},
+        {'id': 1, 'full_name': 'SunshineStream/Sunshine', 'stargazers_count': 1220},
+        {'id': 2, 'full_name': 'Themerr/demo', 'archived': True, 'stargazers_count': 7},
+        {'id': 3, 'full_name': 'KokoStreamTV/demo', 'fork': True, 'stargazers_count': 3},
+        {'id': 4, 'full_name': 'LizardByte/private', 'private': True, 'stargazers_count': 9999},
+        {'name': 'legacy', 'stargazers_count': 4},
+        {'name': 'no-stars'},
+    ]
+    assert builder._build_stars_shields_badge(repositories, {}) == {
+        'schemaVersion': 1, 'label': 'stars', 'message': '1,234', 'color': 'blue',
+    }
+
+
+def test_build_stars_badge_empty_inventory_and_missing_organization():
+    assert builder._build_stars_shields_badge([], {})['message'] == '0'
+    assert builder._build_stars_shields_badge([], {'organizations': [
+        {'name': 'New', 'status': 'unavailable'},
+    ]}) == {
+        'schemaVersion': 1, 'label': 'stars', 'message': 'unavailable', 'color': 'lightgrey', 'isError': True,
+    }
+
+
+def test_build_stars_badge_preserves_cached_counts_during_registry_or_org_outages():
+    collection = {'registry_fresh': False, 'organizations': [
+        {'name': 'Cached', 'status': 'stale'},
+        {'name': 'Fresh', 'status': 'ok', 'codecov_status': 'unavailable'},
+    ]}
+    repositories = [
+        {'id': 1, 'full_name': 'Cached/demo', 'stargazers_count': 10},
+        {'id': 2, 'full_name': 'Fresh/demo', 'stargazers_count': 20},
+    ]
+    assert builder._build_stars_shields_badge(repositories, collection)['message'] == '30'
+
+
 def test_build_end_to_end(monkeypatch, tmp_path):
     base = tmp_path / 'gh-pages'
     template = tmp_path / 'gh-pages-template'
@@ -188,8 +224,8 @@ def test_build_end_to_end(monkeypatch, tmp_path):
             'fork': False,
             'license': {'name': 'MIT'},
         },
-        {'name': 'skip-private', 'private': True, 'archived': False},
-        {'name': 'skip-archived', 'private': False, 'archived': True},
+        {'name': 'skip-private', 'private': True, 'archived': False, 'stargazers_count': 1000},
+        {'name': 'skip-archived', 'private': False, 'archived': True, 'stargazers_count': 6},
     ]
     _write_json(base / 'github' / 'repos.json', repos)
     _write_json(base / 'codecov' / 'demo.json', {'totals': {'coverage': 0}})
@@ -241,6 +277,9 @@ def test_build_end_to_end(monkeypatch, tmp_path):
     metadata = json.loads((data_dir / 'metadata.json').read_text(encoding='utf-8'))
     assert metadata['repo_count'] == 1
     assert metadata['updated_at'] == fixed_now.isoformat()
+
+    badge = json.loads((base / 'shields' / 'github' / 'stars.json').read_text(encoding='utf-8'))
+    assert badge == {'schemaVersion': 1, 'label': 'stars', 'message': '10', 'color': 'blue'}
 
     metrics = json.loads((data_dir / 'pr_metrics.json').read_text(encoding='utf-8'))
     assert metrics == {'demo': pr_metric_cache}

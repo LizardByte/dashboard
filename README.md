@@ -58,6 +58,21 @@ organizations; the workflow supplies these from `GH_BOT_TOKEN` (or `GITHUB_TOKEN
 `CODECOV_API_TOKEN`, respectively. Read the Docs projects are matched by full GitHub identity,
 including saved pre-transfer URLs.
 
+## Combined GitHub stars badge
+
+The dashboard publishes a [Shields.io endpoint badge](https://shields.io/badges/endpoint-badge) at
+`https://app.lizardbyte.dev/dashboard/shields/github/stars.json`. It totals stars on public repositories
+across the shared organization registry, including archived repositories and forks. Repository IDs prevent
+transfers or cached aliases from counting a repository twice.
+
+The existing Update workflow refreshes the count every three hours, using the same inventory as the dashboard
+without additional GitHub requests. If an organization cannot be refreshed, its cached counts remain included.
+If an organization has no available inventory, the badge shows `unavailable` rather than a partial total.
+
+```markdown
+[![GitHub stars across LizardByte organizations](https://img.shields.io/endpoint.svg?url=https%3A%2F%2Fapp.lizardbyte.dev%2Fdashboard%2Fshields%2Fgithub%2Fstars.json&logo=github&style=for-the-badge&cacheSeconds=3600)](https://app.lizardbyte.dev/dashboard/)
+```
+
 ## Azure code signing metrics
 
 The optional Azure Code Signing section displays Artifact Signing (formerly Trusted Signing)

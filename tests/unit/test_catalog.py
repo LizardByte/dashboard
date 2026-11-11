@@ -97,6 +97,18 @@ def test_failed_org_preserves_snapshot_but_fresh_owner_wins_for_transferred_id(m
     assert state['organizations'][2]['status'] == 'unavailable'
 
 
+def test_stars_badge_uses_cached_inventory_and_fresh_owner_after_transfer(monkeypatch, tmp_path):
+    write(tmp_path / 'github/repos.json', [
+        repository(1, 'First/moved', stargazers_count=8).raw_data,
+        repository(2, 'First/stays', stargazers_count=3).raw_data,
+    ])
+    registry(monkeypatch, ['First', 'Second'])
+    fresh = repository(1, 'Second/moved', stargazers_count=10)
+    _, state = catalog.discover(client({'First': RuntimeError('offline'), 'Second': [fresh]}), str(tmp_path))
+    records = json.loads((tmp_path / 'github/repos.json').read_text(encoding='utf-8'))
+    assert builder._build_stars_shields_badge(records, state)['message'] == '13'
+
+
 @pytest.mark.parametrize('names', [[], {}, ['bad/name'], ['First', 'first'], [1]])
 def test_invalid_registry_cannot_replace_valid_state(monkeypatch, names):
     registry(monkeypatch, names)
