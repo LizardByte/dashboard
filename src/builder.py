@@ -13,6 +13,14 @@ from src import azure_signing
 from src import catalog
 from src.logger import log
 
+COVERAGE_BADGE_COLOR_THRESHOLDS = (
+    (90, 'brightgreen'),
+    (70, 'green'),
+    (50, 'yellowgreen'),
+    (30, 'yellow'),
+    (10, 'orange'),
+)
+
 
 def _safe_name(name: str) -> str:
     return catalog.safe_key(name)
@@ -36,17 +44,39 @@ def _load_rtd_repos(base_dir: str) -> set:
     return rtd_repos
 
 
-def _get_coverage(base_dir: str, name: str) -> float:
-    safe = _safe_name(name)
-    codecov_path = os.path.join(base_dir, 'codecov', f'{safe}.json')
-    if not os.path.exists(codecov_path):
-        return 0.0
+def _get_coverage(base_dir: str, key: str) -> float | None:
+    """Read the cached coverage total, using None when no usable cache exists."""
+    codecov_path = os.path.join(base_dir, 'codecov', f'{_safe_name(key)}.json')
     try:
-        with open(codecov_path) as f:
-            data = json.load(f)
+        data = catalog.read_json(codecov_path, None)
+    except (OSError, ValueError):
+        return None
+    if data is None:
+        return None
+    try:
         return float((data.get('totals') or {}).get('coverage', 0) or 0)
-    except Exception:
+    except (AttributeError, TypeError, ValueError):
         return 0.0
+
+
+def _coverage_badge_color(coverage: float) -> str:
+    """Map coverage to the corresponding Shields.io color."""
+    for minimum, color in COVERAGE_BADGE_COLOR_THRESHOLDS:
+        if coverage >= minimum:
+            return color
+    return 'red'
+
+
+def _write_codecov_badge(repo: dict, key: str, coverage: float):
+    """Publish a Shields.io badge at the repository's catalog path."""
+    badge_path = repo.get('dashboard_paths', {}).get('coverage_badge', f'shields/codecov/{key}.json')
+    badge_key = _safe_name(badge_path.removeprefix('shields/codecov/').removesuffix('.json'))
+    helpers.write_json_files(os.path.join(BASE_DIR, 'shields', 'codecov', badge_key), {
+        'schemaVersion': 1,
+        'label': 'codecov',
+        'message': f'{coverage:g}%',
+        'color': _coverage_badge_color(coverage),
+    })
 
 
 def _collect_coverage_history(base_dir: str, name: str) -> list:
@@ -290,12 +320,18 @@ def build():
     pr_metric_caches = {}
 
     for repo in raw_repos:
-        if repo.get('private') or repo.get('archived'):
+        if repo.get('private'):
+            continue
+
+        key = catalog.cache_key(repo)
+        cached_coverage = _get_coverage(BASE_DIR, key)
+        if cached_coverage is not None:
+            _write_codecov_badge(repo, key, cached_coverage)
+        if repo.get('archived'):
             continue
 
         name = catalog.full_name(repo)
-        key = catalog.cache_key(repo)
-        coverage = _get_coverage(BASE_DIR, key)
+        coverage = cached_coverage or 0.0
         coverage_hist = _collect_coverage_history(BASE_DIR, key)
         coverage_history.extend({**entry, 'repo': name} for entry in coverage_hist)
         if not coverage and coverage_hist:

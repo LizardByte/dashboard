@@ -26,13 +26,6 @@ COMMIT_ACTIVITY_READY = 'ready'
 COMMIT_ACTIVITY_PENDING = 'pending'
 COMMIT_ACTIVITY_FAILED = 'failed'
 GITHUB_REPO_STEP_TIMEOUT = 90
-COVERAGE_BADGE_COLOR_THRESHOLDS = (
-    (90, 'brightgreen'),
-    (70, 'green'),
-    (50, 'yellowgreen'),
-    (30, 'yellow'),
-    (10, 'orange'),
-)
 
 
 def update_aur(aur_repos: list):
@@ -95,30 +88,6 @@ def fetch_coverage_trend_for_repo(base_url: str, repo_name: str, headers: dict) 
             page += 1
 
     return coverage_trend_data
-
-
-def _coverage_badge_color(coverage: float) -> str:
-    for minimum, color in COVERAGE_BADGE_COLOR_THRESHOLDS:
-        if coverage >= minimum:
-            return color
-    return 'red'
-
-
-def _get_codecov_coverage(data: dict) -> float:
-    try:
-        return float((data.get('totals') or {}).get('coverage', 0) or 0)
-    except (TypeError, ValueError):
-        return 0.0
-
-
-def _build_codecov_shields_badge(data: dict) -> dict:
-    coverage = _get_codecov_coverage(data)
-    return {
-        'schemaVersion': 1,
-        'label': 'codecov',
-        'message': f'{coverage:g}%',
-        'color': _coverage_badge_color(coverage),
-    }
 
 
 def _codecov_repositories(base_url: str, headers: dict):
@@ -193,9 +162,6 @@ def _update_codecov_org(owner: str, keys: dict | None = None):
 
         file_path = os.path.join(BASE_DIR, 'codecov', key)
         helpers.write_json_files(file_path=file_path, data=data)
-
-        badge_path = os.path.join(BASE_DIR, 'shields', 'codecov', key)
-        helpers.write_json_files(file_path=badge_path, data=_build_codecov_shields_badge(data))
 
         # Get coverage trend data
         coverage_trend_data = fetch_coverage_trend_for_repo(base_url, repo["name"], headers)
