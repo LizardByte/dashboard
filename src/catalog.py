@@ -3,6 +3,7 @@
 import json
 import os
 import re
+from collections import Counter
 from datetime import datetime, timezone
 from urllib.parse import urlparse
 
@@ -108,7 +109,8 @@ def organizations(state: dict) -> tuple[list[str], bool]:
         return cached, False
 
 
-def _register(state: dict, repo: dict) -> dict:
+def _register(state: dict, repo: dict, unique_name: bool) -> dict:
+    """Register the current repository identity and its published asset paths."""
     identity = str(repo['id'])
     canonical = full_name(repo)
     safe_key(canonical)
@@ -116,14 +118,19 @@ def _register(state: dict, repo: dict) -> dict:
             record['key'].lower() == canonical.lower() for record in state['repositories'].values()):
         raise ValueError('Repository cache key belongs to another repository ID')
     record = state['repositories'].setdefault(identity, {'key': canonical, 'full_name': canonical})
-    # Stable keys keep old public badge/banner paths valid across both transfers and renames.
     aliases = sorted({*record.get('aliases', []), record['full_name'], canonical})
     record.update({'full_name': canonical, 'aliases': aliases})
-    return {**repo, 'dashboard_key': record['key'], 'dashboard_aliases': aliases,
+    key = record['key']
+    name = repo['name']
+    # A renamed legacy badge can keep the flat layout when its new name is unambiguous.
+    badge_key = canonical
+    if '/' not in key and (unique_name or key.casefold() == name.casefold()):
+        badge_key = name
+    return {**repo, 'dashboard_key': key, 'dashboard_aliases': aliases,
             'dashboard_paths': {
-                'banner': f'github/openGraphImages/{record["key"]}.png',
-                'banner_small': f'github/openGraphImages/{record["key"]}_624x312.png',
-                'coverage_badge': f'shields/codecov/{record["key"]}.json',
+                'banner': f'github/openGraphImages/{key}.png',
+                'banner_small': f'github/openGraphImages/{key}_624x312.png',
+                'coverage_badge': f'shields/codecov/{badge_key}.json',
             }}
 
 
@@ -147,7 +154,8 @@ def discover(github, base_dir: str) -> tuple[list, dict]:
             statuses.append({**prior, 'name': name, 'status': 'stale' if cached else 'unavailable'})
             log.warning(f'GitHub organization {name} unavailable; preserving its cached public inventory.')
     snapshots.update((identity, repo.raw_data) for identity, repo in fresh.items())
-    records = [_register(state, data) for data in snapshots.values()]
+    name_counts = Counter(repo['name'].casefold() for repo in snapshots.values())
+    records = [_register(state, repo, name_counts[repo['name'].casefold()] == 1) for repo in snapshots.values()]
     records.sort(key=lambda repo: full_name(repo).lower())
     for identity, repo in fresh.items():
         repo.dashboard_key = state['repositories'][identity]['key']

@@ -36,16 +36,21 @@ them from the repository's current name or owner.
 
 `github/catalog.json` is generated state, keyed by GitHub's persistent repository ID.
 On the first run, it restores existing storage keys from the published `github/repos.json`.
-Those keys stay unchanged across transfers and renames, so existing badge/banner URLs,
-star and coverage history, commit activity, and PR caches continue to work. New repositories
-use `owner/name` storage keys, keeping repositories with the same name in different orgs separate.
-PR metrics pages also retain their original report routes. Coverage points from destination
-Codecov projects are merged into the existing series by timestamp.
+Those keys stay unchanged across transfers and renames, preserving banner URLs, star and
+coverage history, commit activity, and PR caches. New repositories use `owner/name` storage
+keys, keeping repositories with the same name in different orgs separate. PR metrics pages
+also retain their original report routes. Coverage points from destination Codecov projects
+are merged into the existing series by timestamp.
 
-The Update workflow restores `github`, `codecov`, `readthedocs`, `shields`, and `azure` data
-from `gh-pages` before collecting. Keep the published identity catalog and these caches when
-moving or restoring a deployment; deleting them discards the mapping to existing public URLs
-and history. Other services and Azure collection settings are independent of the org registry.
+The build regenerates Codecov badge URLs using current repository names and cached coverage data.
+Existing flat badge paths follow renames when the new name is unique. Repositories with
+owner-qualified paths and renamed repositories with conflicting names use the current `owner/name`.
+After a rename, look up the new URL in `dashboard_paths.coverage_badge`.
+
+The Update workflow restores `github`, `codecov`, `readthedocs`, and `azure` data from
+`gh-pages` before collecting. Preserve the published identity catalog and these caches when
+moving or restoring a deployment to retain history. Other services and Azure collection
+settings are independent of the org registry.
 
 GitHub and Codecov collections run separately for each organization. If an organization cannot
 be refreshed, its available cache remains published and the dashboard shows a collection notice.

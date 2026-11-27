@@ -67,6 +67,55 @@ def test_transfer_keeps_original_urls_and_cache_bytes(monkeypatch, tmp_path):
     assert catalog.cache_key(moved) == 'Sunshine'
 
 
+def test_renamed_codecov_badge_uses_current_name_and_cached_coverage(monkeypatch, tmp_path):
+    """Publish coverage under the new name as soon as GitHub reports the rename."""
+    base = tmp_path / 'gh-pages'
+    template = tmp_path / 'gh-pages-template'
+    old = repository(1, 'SunshineStream/Moonlight-XboxOG')
+    renamed = repository(1, 'SunshineStream/Sunshine-client')
+    write(base / 'github/repos.json', [old.raw_data])
+    cache = base / 'codecov/Moonlight-XboxOG.json'
+    write(cache, {'totals': {'coverage': 90.78}})
+    trend = cache.with_name('Moonlight-XboxOG_coverage_trend.json')
+    write(trend, [{'timestamp': '2026-11-25', 'avg': 90}])
+    registry(monkeypatch, ['SunshineStream'])
+    _, state = catalog.discover(client({'SunshineStream': [renamed]}), str(base))
+    assert state['repositories']['1']['key'] == 'Moonlight-XboxOG'
+    [record] = json.loads((base / 'github/repos.json').read_text(encoding='utf-8'))
+    badge_path = record['dashboard_paths']['coverage_badge']
+    assert badge_path == 'shields/codecov/Sunshine-client.json'
+
+    monkeypatch.setattr(builder, 'BASE_DIR', str(base))
+    monkeypatch.setattr(builder, 'TEMPLATE_DIR', str(template))
+    builder.build()
+
+    badge = json.loads((base / badge_path).read_text(encoding='utf-8'))
+    assert badge == {'schemaVersion': 1, 'label': 'codecov', 'message': '90.78%', 'color': 'brightgreen'}
+    assert not (base / 'shields/codecov/Moonlight-XboxOG.json').exists()
+    assert json.loads(cache.read_text(encoding='utf-8')) == {'totals': {'coverage': 90.78}}
+    history = json.loads((template / 'assets/data/coverage_history.json').read_text(encoding='utf-8'))
+    assert history == [{'repo': renamed.raw_data['full_name'], 'date': '2026-11-25', 'coverage': 90.0}]
+
+
+def test_codecov_badge_names_qualify_renames_that_collide(monkeypatch, tmp_path):
+    """Keep existing owners of flat URLs and use qualified paths for collisions."""
+    write(tmp_path / 'github/repos.json', [
+        repository(1, 'First/Demo').raw_data, repository(2, 'Second/old').raw_data,
+        {**repository(3, 'Third/another-old').raw_data, 'dashboard_key': 'Third/another-old'},
+    ])
+    registry(monkeypatch, ['First', 'Second', 'Third'])
+    first = repository(1, 'First/Demo')
+    second = repository(2, 'Second/demo')
+    third = repository(3, 'Third/distinct')
+    catalog.discover(client({'First': [first], 'Second': [second], 'Third': [third]}), str(tmp_path))
+    records = json.loads((tmp_path / 'github/repos.json').read_text(encoding='utf-8'))
+    assert {record['id']: record['dashboard_paths']['coverage_badge'] for record in records} == {
+        1: 'shields/codecov/Demo.json',
+        2: 'shields/codecov/Second/demo.json',
+        3: 'shields/codecov/Third/distinct.json',
+    }
+
+
 def test_distinct_orgs_with_same_names_keep_independent_storage_and_private_repos_stay_private(monkeypatch, tmp_path):
     registry(monkeypatch, ['First', 'Second'])
     first, second = repository(1, 'First/demo'), repository(2, 'Second/demo', archived=True)
@@ -140,7 +189,7 @@ def test_index_validation_rejects_ambiguous_legacy_paths_and_unknown_versions(tm
         catalog.load_state(str(tmp_path))
     conflicting = repository(2, 'First/demo').raw_data
     with pytest.raises(ValueError, match='another repository ID'):
-        catalog._register({'repositories': {'1': {'key': 'First/demo'}}}, conflicting)
+        catalog._register({'repositories': {'1': {'key': 'First/demo'}}}, conflicting, unique_name=True)
 
 
 def test_legacy_private_entries_are_not_registered_and_non_github_docs_are_not_guessed(tmp_path):
@@ -229,7 +278,7 @@ def test_codecov_each_org_uses_its_owner_and_stable_key_and_retains_failed_data(
     monkeypatch.setattr(updater, 'fetch_coverage_trend_for_repo',
                         lambda *args: [{'timestamp': '2026-01-01', 'avg': 92}])
     updater.update_codecov()
-    assert json.loads((tmp_path / 'shields/codecov/legacy-demo.json').read_text())['message'] == '92%'
+    assert json.loads((tmp_path / 'codecov/legacy-demo.json').read_text())['totals']['coverage'] == 92
     assert json.loads((tmp_path / 'codecov/Other/demo.json').read_text())['totals']['coverage'] == 71
     assert json.loads((tmp_path / 'codecov/legacy-demo_coverage_trend.json').read_text()) == [
         {'timestamp': '2024-01-01', 'avg': 70}, {'timestamp': '2026-01-01', 'avg': 92}]

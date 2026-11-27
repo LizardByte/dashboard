@@ -38,6 +38,23 @@ def test_load_rtd_repos_parses_repo_names(tmp_path):
     assert builder._load_rtd_repos(str(tmp_path)) == {'lizardbyte/demo', 'lizardbyte/demo2'}
 
 
+@pytest.mark.parametrize(('coverage', 'color'), [
+    (100, 'brightgreen'),
+    (90, 'brightgreen'),
+    (89.9, 'green'),
+    (70, 'green'),
+    (69.9, 'yellowgreen'),
+    (50, 'yellowgreen'),
+    (49.9, 'yellow'),
+    (30, 'yellow'),
+    (29.9, 'orange'),
+    (10, 'orange'),
+    (9.9, 'red'),
+])
+def test_coverage_badge_color(coverage, color):
+    assert builder._coverage_badge_color(coverage) == color
+
+
 def test_get_coverage_and_history(tmp_path):
     _write_json(tmp_path / 'codecov' / 'demo.json', {'totals': {'coverage': 81.5}})
     _write_json(tmp_path / 'codecov' / 'demo_coverage_trend.json', [
@@ -52,12 +69,14 @@ def test_get_coverage_and_history(tmp_path):
 
 
 def test_get_coverage_and_history_fallbacks(tmp_path):
-    assert builder._get_coverage(str(tmp_path), 'demo') == pytest.approx(0.0)
+    assert builder._get_coverage(str(tmp_path), 'demo') is None
     assert builder._collect_coverage_history(str(tmp_path), 'demo') == []
 
     _write_json(tmp_path / 'codecov' / 'demo.json', {'totals': {'coverage': 'bad'}})
     _write_json(tmp_path / 'codecov' / 'demo_coverage_trend.json', {'bad': 1})
     assert builder._get_coverage(str(tmp_path), 'demo') == pytest.approx(0.0)
+    (tmp_path / 'codecov/demo.json').write_text('invalid JSON', encoding='utf-8')
+    assert builder._get_coverage(str(tmp_path), 'demo') is None
     assert builder._collect_coverage_history(str(tmp_path), 'demo') == []
 
 
@@ -277,6 +296,9 @@ def test_build_end_to_end(monkeypatch, tmp_path):
     metadata = json.loads((data_dir / 'metadata.json').read_text(encoding='utf-8'))
     assert metadata['repo_count'] == 1
     assert metadata['updated_at'] == fixed_now.isoformat()
+
+    codecov_badge = json.loads((base / 'shields/codecov/demo.json').read_text(encoding='utf-8'))
+    assert codecov_badge == {'schemaVersion': 1, 'label': 'codecov', 'message': '0%', 'color': 'red'}
 
     badge = json.loads((base / 'shields' / 'github' / 'stars.json').read_text(encoding='utf-8'))
     assert badge == {'schemaVersion': 1, 'label': 'stars', 'message': '10', 'color': 'blue'}
