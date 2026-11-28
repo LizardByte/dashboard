@@ -43,7 +43,7 @@ def update_aur(aur_repos: list):
         data = response.json()
 
         file_path = os.path.join(BASE_DIR, 'aur', repo)
-        helpers.write_json_files(file_path=file_path, data=data)
+        helpers.write_json_files(file_path=file_path, data=data, base_dir=BASE_DIR)
 
 
 def process_coverage_response(coverage_response, repo_name: str) -> tuple[list, bool]:
@@ -161,7 +161,7 @@ def _update_codecov_org(owner: str, keys: dict | None = None):
             continue
 
         file_path = os.path.join(BASE_DIR, 'codecov', key)
-        helpers.write_json_files(file_path=file_path, data=data)
+        helpers.write_json_files(file_path=file_path, data=data, base_dir=BASE_DIR)
 
         # Get coverage trend data
         coverage_trend_data = fetch_coverage_trend_for_repo(base_url, repo["name"], headers)
@@ -170,7 +170,8 @@ def _update_codecov_org(owner: str, keys: dict | None = None):
         if coverage_trend_data:
             coverage_trend_path = os.path.join(BASE_DIR, 'codecov', f'{key}_coverage_trend')
             helpers.write_json_files(file_path=coverage_trend_path,
-                                     data=_merge_coverage_history(coverage_trend_path, coverage_trend_data))
+                                     data=_merge_coverage_history(coverage_trend_path, coverage_trend_data),
+                                     base_dir=BASE_DIR)
     return fresh
 
 
@@ -189,7 +190,7 @@ def update_codecov():
         except Exception:
             org['codecov_status'] = 'stale'
             log.warning(f'Codecov organization {org["name"]} unavailable; retaining its cached data.')
-    helpers.write_json_files(os.path.join(BASE_DIR, 'github', 'catalog'), state)
+    helpers.write_json_files(os.path.join(BASE_DIR, 'github', 'catalog'), state, base_dir=BASE_DIR)
 
 
 def update_discord():
@@ -208,7 +209,7 @@ def update_discord():
         data = response.json()
 
         file_path = os.path.join(BASE_DIR, 'discord', 'invite')
-        helpers.write_json_files(file_path=file_path, data=data)
+        helpers.write_json_files(file_path=file_path, data=data, base_dir=BASE_DIR)
 
 
 def update_fb():
@@ -243,7 +244,7 @@ def update_fb():
             del data['paging']
 
         file_path = os.path.join(BASE_DIR, 'facebook', key)
-        helpers.write_json_files(file_path=file_path, data=data)
+        helpers.write_json_files(file_path=file_path, data=data, base_dir=BASE_DIR)
 
 
 def _commit_participation_url(repo) -> str:
@@ -372,9 +373,11 @@ def _write_commit_activity(repo, commit_activity: list, sha: str | None = None) 
     sha : str or None
         Default-branch commit SHA that produced the stats.
     """
-    helpers.write_json_files(file_path=_commit_activity_cache_path(repo), data=commit_activity)
+    helpers.write_json_files(file_path=_commit_activity_cache_path(repo), data=commit_activity, base_dir=BASE_DIR)
     if sha:
-        helpers.write_json_files(file_path=_commit_activity_hash_cache_path(repo), data={'sha': sha})
+        helpers.write_json_files(
+            file_path=_commit_activity_hash_cache_path(repo), data={'sha': sha}, base_dir=BASE_DIR,
+        )
 
 
 def _run_github_repo_step(repo, step: str, func: callable, default=None, timeout: int = GITHUB_REPO_STEP_TIMEOUT):
@@ -925,19 +928,19 @@ def _process_github_repo(repo, headers: dict, graphql_url: str) -> None:
     languages = _run_github_repo_step(repo, 'languages', repo.get_languages)
     if languages is not None:
         file_path = os.path.join(BASE_DIR, 'github', 'languages', catalog.cache_key(repo))
-        helpers.write_json_files(file_path=file_path, data=languages)
+        helpers.write_json_files(file_path=file_path, data=languages, base_dir=BASE_DIR)
 
     # open pull requests
     pulls_data = _run_github_repo_step(repo, 'pull requests', lambda: _collect_open_pulls(repo))
     if pulls_data is not None:
         file_path = os.path.join(BASE_DIR, 'github', 'pulls', catalog.cache_key(repo))
-        helpers.write_json_files(file_path=file_path, data=pulls_data)
+        helpers.write_json_files(file_path=file_path, data=pulls_data, base_dir=BASE_DIR)
 
     # open issues
     issues_data = _run_github_repo_step(repo, 'issues', lambda: _collect_open_issues(repo))
     if issues_data is not None:
         file_path = os.path.join(BASE_DIR, 'github', 'issues', catalog.cache_key(repo))
-        helpers.write_json_files(file_path=file_path, data=issues_data)
+        helpers.write_json_files(file_path=file_path, data=issues_data, base_dir=BASE_DIR)
 
     # open code scanning alerts and per-day history
     alerts = _run_github_repo_step(repo, 'code scanning alerts', lambda: _fetch_code_scanning_alerts(repo))
@@ -946,7 +949,7 @@ def _process_github_repo(repo, headers: dict, graphql_url: str) -> None:
             1 for a in alerts if getattr(a, 'state', None) == 'open'
         )
         file_path = os.path.join(BASE_DIR, 'github', 'codeScanning', catalog.cache_key(repo))
-        helpers.write_json_files(file_path=file_path, data={
+        helpers.write_json_files(file_path=file_path, base_dir=BASE_DIR, data={
             'repo': repo.name,
             'open': open_alert_count,
             'updated_at': datetime.now(tz=timezone.utc).isoformat(),
@@ -954,13 +957,13 @@ def _process_github_repo(repo, headers: dict, graphql_url: str) -> None:
 
         code_scanning_history = _build_code_scanning_history(alerts)
         file_path = os.path.join(BASE_DIR, 'github', 'codeScanningHistory', catalog.cache_key(repo))
-        helpers.write_json_files(file_path=file_path, data=code_scanning_history)
+        helpers.write_json_files(file_path=file_path, data=code_scanning_history, base_dir=BASE_DIR)
 
     # star history (sampled to cap API calls)
     star_history = _run_github_repo_step(repo, 'star history', lambda: _collect_star_history(repo))
     if star_history:
         file_path = os.path.join(BASE_DIR, 'github', 'starHistory', catalog.cache_key(repo))
-        helpers.write_json_files(file_path=file_path, data=star_history)
+        helpers.write_json_files(file_path=file_path, data=star_history, base_dir=BASE_DIR)
 
     # openGraphImages - uses GraphQL
     image_url = _run_github_repo_step(
@@ -1033,7 +1036,7 @@ def update_patreon():
         data = response.json()['data']['attributes']
 
         file_path = os.path.join(BASE_DIR, 'patreon', 'LizardByte')
-        helpers.write_json_files(file_path=file_path, data=data)
+        helpers.write_json_files(file_path=file_path, data=data, base_dir=BASE_DIR)
 
 
 def readthedocs_loop(url: str, file_path: str) -> list:
@@ -1065,7 +1068,7 @@ def readthedocs_loop(url: str, file_path: str) -> list:
             break
 
     if results:
-        helpers.write_json_files(file_path=file_path, data=results)
+        helpers.write_json_files(file_path=file_path, data=results, base_dir=BASE_DIR)
 
     return results
 

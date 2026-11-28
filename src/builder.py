@@ -76,7 +76,7 @@ def _write_codecov_badge(repo: dict, key: str, coverage: float):
         'label': 'codecov',
         'message': f'{coverage:g}%',
         'color': _coverage_badge_color(coverage),
-    })
+    }, base_dir=BASE_DIR)
 
 
 def _collect_coverage_history(base_dir: str, name: str) -> list:
@@ -377,6 +377,7 @@ def build():
     helpers.write_json_files(
         os.path.join(BASE_DIR, 'shields', 'github', 'stars'),
         _build_stars_shields_badge(raw_repos, collection),
+        base_dir=BASE_DIR,
     )
     aliases = {catalog.cache_key(repo): catalog.full_name(repo) for repo in raw_repos
                if pr_metrics.is_active_repo(repo) and catalog.cache_key(repo) != catalog.full_name(repo)}
