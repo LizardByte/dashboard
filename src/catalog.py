@@ -161,6 +161,6 @@ def discover(github, base_dir: str) -> tuple[list, dict]:
         repo.dashboard_key = state['repositories'][identity]['key']
     state.update({'source_url': ORGANIZATIONS_URL, 'registry_fresh': registry_fresh,
                   'organizations': statuses})
-    helpers.write_json_files(os.path.join(base_dir, 'github', 'catalog'), state)
-    helpers.write_json_files(os.path.join(base_dir, 'github', 'repos'), records)
+    helpers.write_json_files(os.path.join(base_dir, 'github', 'catalog'), state, base_dir=base_dir)
+    helpers.write_json_files(os.path.join(base_dir, 'github', 'repos'), records, base_dir=base_dir)
     return list(fresh.values()), state

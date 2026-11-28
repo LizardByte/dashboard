@@ -279,6 +279,7 @@ def refresh_repository(repository, base_dir: str, headers: dict, session, now: d
     pulls = fetch_repository(repository, headers, session, now)
     helpers.write_json_files(
         file_path=cache_path(base_dir, key),
+        base_dir=base_dir,
         data={
             'repository': catalog.full_name(getattr(repository, 'raw_data', {'name': repository.name})),
             'collected_at': now.isoformat(),

@@ -3,7 +3,6 @@ import json
 import os
 import pathlib
 import time
-from typing import Union
 from urllib3 import Retry
 
 # lib imports
@@ -88,8 +87,8 @@ def is_bot_issue_author(login: str | None, account_type: str | None = None) -> b
 
 def debug_print(
         *values: object,
-        sep: Union[str, None] = ' ',
-        end: Union[str, None] = '\n',
+        sep: str | None = ' ',
+        end: str | None = '\n',
 ):
     log.debug(msg=sep.join(map(str, values)))
     if os.getenv('ACTIONS_RUNNER_DEBUG') or os.getenv('ACTIONS_STEP_DEBUG'):
@@ -132,24 +131,33 @@ def save_image_from_url(file_path: str, file_extension: str, image_url: str, siz
         resized_img_data.save(fp=f'{file_path}_{size_x}x{size_y}.{file_extension}')
 
 
-def write_json_files(file_path: str, data: any):
+def write_json_files(file_path: str | pathlib.Path, data: any, *, base_dir: str | pathlib.Path):
     """
-    Write dictionary to JSON file.
+    Write data to a JSON file inside the dashboard output directory.
 
     Parameters
     ----------
-    file_path : str
+    file_path : str or pathlib.Path
         The file path to save the file at, excluding the file extension which will be `.json`
     data
-        The dictionary data to write in the JSON file.
+        The data to write in the JSON file.
+    base_dir : str or pathlib.Path
+        The trusted dashboard output directory.
+
+    Raises
+    ------
+    ValueError
+        If the resolved destination is outside the dashboard output directory.
     """
+    output_dir = pathlib.Path(base_dir).resolve()
+    destination = pathlib.Path(f'{file_path}.json').resolve()
+    if output_dir not in destination.parents:
+        raise ValueError('JSON destination is outside the dashboard output directory')
+
     debug_print(f'Writing json file at {file_path}')
-    # determine the directory
-    directory = os.path.dirname(file_path)
+    destination.parent.mkdir(parents=True, exist_ok=True)
 
-    pathlib.Path(directory).mkdir(parents=True, exist_ok=True)
-
-    with open(f'{file_path}.json', 'w') as f:
+    with destination.open('w') as f:
         json.dump(
             obj=data,
             fp=f,

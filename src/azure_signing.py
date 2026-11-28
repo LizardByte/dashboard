@@ -322,5 +322,5 @@ def update(base_dir: str) -> None:
             log.warning('Azure signing metrics unavailable; check configuration, permissions, and connectivity.')
         data.update(resource_hash=resource_hash, attempted_at=now.isoformat())
 
-    helpers.write_json_files(file_path=os.path.join(base_dir, 'azure', 'signing'), data=data)
+    helpers.write_json_files(os.path.join(base_dir, 'azure', 'signing'), data, base_dir=base_dir)
     log.info('Azure signing metrics saved: status=%s, %s cached days.', data['status'], len(data['daily']))

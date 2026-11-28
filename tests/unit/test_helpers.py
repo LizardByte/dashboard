@@ -1,6 +1,9 @@
 # standard imports
 import json
 
+# lib imports
+import pytest
+
 # local imports
 from src import helpers
 
@@ -146,11 +149,39 @@ def test_write_json_files_with_and_without_indent(monkeypatch, tmp_path):
 
     monkeypatch.delenv('ACTIONS_RUNNER_DEBUG', raising=False)
     monkeypatch.delenv('ACTIONS_STEP_DEBUG', raising=False)
-    helpers.write_json_files(str(path1), payload)
+    helpers.write_json_files(str(path1), payload, base_dir=str(tmp_path))
     assert json.loads((tmp_path / 'a' / 'file.json').read_text()) == payload
 
     monkeypatch.setenv('ACTIONS_STEP_DEBUG', '1')
-    helpers.write_json_files(str(path2), payload)
+    helpers.write_json_files(path2, payload, base_dir=tmp_path)
     content = (tmp_path / 'b' / 'file.json').read_text()
     assert '\n' in content
     assert json.loads(content) == payload
+
+
+def test_write_json_files_rejects_destinations_outside_output_dir(tmp_path):
+    """Reject a sibling directory before creating any output there."""
+    output_dir = tmp_path / 'dashboard'
+    sibling_dir = tmp_path / 'dashboard-other'
+
+    with pytest.raises(ValueError, match='outside the dashboard output directory'):
+        helpers.write_json_files(sibling_dir / 'stats', {}, base_dir=output_dir)
+
+    assert not sibling_dir.exists()
+
+
+def test_write_json_files_rejects_symlink_to_file_outside_output_dir(tmp_path):
+    """Validate the resolved filename including its extension."""
+    output_dir = tmp_path / 'dashboard'
+    output_dir.mkdir()
+    outside_file = tmp_path / 'existing.json'
+    outside_file.write_text('{}', encoding='utf-8')
+    try:
+        (output_dir / 'stats.json').symlink_to(outside_file)
+    except OSError as error:  # Windows may require symlink privileges.
+        pytest.skip(f'Cannot create a symlink: {error}')
+
+    with pytest.raises(ValueError, match='outside the dashboard output directory'):
+        helpers.write_json_files(output_dir / 'stats', {'new': True}, base_dir=output_dir)
+
+    assert outside_file.read_text(encoding='utf-8') == '{}'

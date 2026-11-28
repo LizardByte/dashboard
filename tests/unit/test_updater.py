@@ -112,7 +112,9 @@ class FakeRepo:
 def test_update_aur(monkeypatch):
     written = []
     monkeypatch.setattr(updater.helpers.s, 'get', lambda url: FakeResponse({'result': url}))
-    monkeypatch.setattr(updater.helpers, 'write_json_files', lambda file_path, data: written.append((file_path, data)))
+    monkeypatch.setattr(
+        updater.helpers, 'write_json_files', lambda file_path, data, *, base_dir: written.append((file_path, data)),
+    )
     monkeypatch.setattr(updater, 'BASE_DIR', 'base')
 
     updater.update_aur(['a', 'b'])
@@ -162,7 +164,9 @@ def test_update_codecov_success(monkeypatch, tmp_path):
     monkeypatch.setenv('GITHUB_REPOSITORY_OWNER', 'owner')
 
     writes = []
-    monkeypatch.setattr(updater.helpers, 'write_json_files', lambda file_path, data: writes.append((file_path, data)))
+    monkeypatch.setattr(
+        updater.helpers, 'write_json_files', lambda file_path, data, *, base_dir: writes.append((file_path, data)),
+    )
     monkeypatch.setattr(updater, 'fetch_coverage_trend_for_repo', lambda *args, **kwargs: [{'avg': 90}])
 
     def fake_get(url, headers):
@@ -217,7 +221,9 @@ def test_update_discord(monkeypatch):
     monkeypatch.setenv('DISCORD_INVITE', 'invite')
     writes = []
     monkeypatch.setattr(updater.helpers.s, 'get', lambda url: FakeResponse({'code': 'invite'}))
-    monkeypatch.setattr(updater.helpers, 'write_json_files', lambda file_path, data: writes.append((file_path, data)))
+    monkeypatch.setattr(
+        updater.helpers, 'write_json_files', lambda file_path, data, *, base_dir: writes.append((file_path, data)),
+    )
     monkeypatch.setattr(updater, 'BASE_DIR', 'base')
 
     updater.update_discord()
@@ -242,7 +248,9 @@ def test_update_fb(monkeypatch):
         return FakeResponse({'data': [{'value': 1}]})
 
     monkeypatch.setattr(updater.helpers.s, 'get', fake_get)
-    monkeypatch.setattr(updater.helpers, 'write_json_files', lambda file_path, data: writes.append((file_path, data)))
+    monkeypatch.setattr(
+        updater.helpers, 'write_json_files', lambda file_path, data, *, base_dir: writes.append((file_path, data)),
+    )
 
     updater.update_fb()
 
@@ -263,7 +271,9 @@ def test_fetch_commit_activity(monkeypatch, tmp_path):
     monkeypatch.setattr(updater, 'datetime', FixedDatetime)
 
     writes = []
-    monkeypatch.setattr(updater.helpers, 'write_json_files', lambda file_path, data: writes.append((file_path, data)))
+    monkeypatch.setattr(
+        updater.helpers, 'write_json_files', lambda file_path, data, *, base_dir: writes.append((file_path, data)),
+    )
 
     urls = []
     monkeypatch.setattr(
@@ -527,7 +537,9 @@ def test_process_github_repo(monkeypatch, tmp_path):
     monkeypatch.setattr(updater, 'BASE_DIR', str(tmp_path / 'gh-pages'))
 
     writes = []
-    monkeypatch.setattr(updater.helpers, 'write_json_files', lambda file_path, data: writes.append((file_path, data)))
+    monkeypatch.setattr(
+        updater.helpers, 'write_json_files', lambda file_path, data, *, base_dir: writes.append((file_path, data)),
+    )
     monkeypatch.setattr(
         updater.helpers,
         'save_image_from_url',
@@ -609,7 +621,9 @@ def test_update_github(monkeypatch, tmp_path):
     monkeypatch.setattr(updater.Auth, 'Token', lambda token: token)
 
     writes = []
-    monkeypatch.setattr(updater.helpers, 'write_json_files', lambda file_path, data: writes.append((file_path, data)))
+    monkeypatch.setattr(
+        updater.helpers, 'write_json_files', lambda file_path, data, *, base_dir: writes.append((file_path, data)),
+    )
     commit_repos = []
     monkeypatch.setattr(
         updater,
@@ -640,7 +654,9 @@ def test_update_patreon(monkeypatch):
 
     writes = []
     monkeypatch.setattr(updater.helpers.cs, 'get', lambda url: FakeResponse({'data': {'attributes': {'patrons': 10}}}))
-    monkeypatch.setattr(updater.helpers, 'write_json_files', lambda file_path, data: writes.append((file_path, data)))
+    monkeypatch.setattr(
+        updater.helpers, 'write_json_files', lambda file_path, data, *, base_dir: writes.append((file_path, data)),
+    )
 
     updater.update_patreon()
 
@@ -654,7 +670,9 @@ def test_readthedocs_loop_and_update(monkeypatch, tmp_path):
     monkeypatch.setattr(updater, 'BASE_DIR', str(tmp_path / 'gh-pages'))
 
     writes = []
-    monkeypatch.setattr(updater.helpers, 'write_json_files', lambda file_path, data: writes.append((file_path, data)))
+    monkeypatch.setattr(
+        updater.helpers, 'write_json_files', lambda file_path, data, *, base_dir: writes.append((file_path, data)),
+    )
 
     responses = [
         FakeResponse({'results': [{'id': 1}], 'next': 'next'}),
